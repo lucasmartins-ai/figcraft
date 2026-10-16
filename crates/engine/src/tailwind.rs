@@ -404,9 +404,12 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
     if !only_mobile.is_empty() {
         mode.push_str(&format!(". Only in the mobile frame, add by hand with {BREAKPOINT}:hidden: {}", only_mobile.join(", ")));
     }
-    format!(
-        "// {} as React + Tailwind CSS v4{mode}. Theme: variable.export {{format: \"tailwind\"}}.\nexport function {name}() {{\n  return (\n{markup}  );\n}}\n",
-        // Every JS line terminator, so a layer name can't end the comment and inject code.
-        n.name.chars().take(200).map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { ' ' } else { c }).collect::<String>()
-    )
+    let header = comment_safe(&format!("{} as React + Tailwind CSS v4{mode}. Theme: variable.export {{format: \"tailwind\"}}.", n.name));
+    format!("// {header}\nexport function {name}() {{\n  return (\n{markup}  );\n}}\n")
+}
+
+/// `text` for one `//` comment line: every JS line terminator (control characters, U+2028,
+/// U+2029) becomes a space, so layer names in it can't end the comment and inject code.
+fn comment_safe(text: &str) -> String {
+    text.chars().take(2_000).map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { ' ' } else { c }).collect()
 }

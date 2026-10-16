@@ -208,3 +208,16 @@ fn a_variable_named_after_its_namespace_is_its_base() {
     let tw = ex(&mut s, "variable.export", json!({"format": "tailwind"}))["text"].as_str().unwrap_or_default().to_string();
     assert!(tw.contains("--radius-base: 12px;") && !tw.contains("--radius-radius"), "{tw}");
 }
+
+#[test]
+fn mobile_only_layer_names_cant_break_out_of_the_header_comment() {
+    let mut s = Session::new();
+    let (desk, _) = page(&mut s, "Landing", 1440.0, "horizontal");
+    let (mob, _) = page(&mut s, "Landing mobile", 390.0, "vertical");
+    ex(&mut s, "text.create", json!({"text": "x", "x": 0, "y": 0, "parent": mob, "props": {"name": "Tag\nalert(1)\u{2028}y"}}));
+    let out = code(&mut s, desk, json!({"mobile": mob}));
+    let header = out.lines().next().unwrap_or_default();
+    assert!(header.starts_with("// ") && header.contains("alert(1)"), "listed inside the comment: {out}");
+    assert!(out.lines().nth(1).is_some_and(|l| l.starts_with("export function ")), "{out}");
+    assert!(!out.contains(['\r', '\u{2028}', '\u{2029}']), "{out:?}");
+}
