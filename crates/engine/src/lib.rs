@@ -20,6 +20,7 @@ pub mod codegen;
 pub mod collab;
 pub mod component_codegen;
 pub mod components;
+pub mod datafill;
 pub mod dev_resources;
 pub mod devcompare;
 pub mod devinspect;
@@ -49,6 +50,7 @@ pub mod snap;
 pub mod style_vars;
 pub mod synthetic;
 pub mod synthetic_ds;
+pub mod tailwind;
 pub mod templates;
 pub mod textedit;
 pub mod textpreview;
@@ -1500,6 +1502,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod dark_page_text_tests;
 #[cfg(test)]
+mod datafill_tests;
+#[cfg(test)]
 mod dev_resources_tests;
 #[cfg(test)]
 mod devcompare_tests;
@@ -1675,6 +1679,8 @@ mod style_vars_tests;
 mod styles_behaviour_tests;
 #[cfg(test)]
 mod svg_import_tests;
+#[cfg(test)]
+mod tailwind_tests;
 #[cfg(test)]
 mod templates_tests;
 #[cfg(test)]

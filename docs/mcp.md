@@ -254,6 +254,22 @@ tips; headless, it only sets the preference.
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"export","arguments":{"format":"png","path":"dashboard.png"}}}
 ```
 
+### Filling copies with data
+
+`data.fill {id, rows, gap?, dir?, format?, scale?}` repeats a frame once per row (a carousel, a set
+of posts, a card per item) in one undo step: each key of a row names layers in the copy, and a
+string (or number) sets their text, `{text?, fill?, visible?}` sets more; `name` names the copy
+(default "<frame> <n>"). Copies go in a row to the right, `gap` apart (default 100). With `dir`, each
+copy is exported there as `<name>.<format>` (png by default) after the edits land. Returns `{ids,
+missing (keys no layer is named), files?}`.
+
+```json
+{"command": "data.fill", "params": {"id": 80, "dir": "out/carousel", "scale": 1, "rows": [
+  {"name": "01-capa", "Headline": "Site e WhatsApp com IA em 7 dias", "Badge": {"visible": true}},
+  {"name": "02-prova", "Headline": "Lighthouse 100, abre em menos de 1s", "Badge": {"visible": false}}
+]}}
+```
+
 ### Sections, handoff and arrow keys
 
 `run_command` with `object.wrapInSection {ids?, name?}` (Wrap in new section: layers on the page or
@@ -1182,6 +1198,18 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
 
 ### Dev Mode
 
+- **Pages as React + Tailwind:** `inspect.code {id, language: "tailwind"}` writes a layer tree as a
+  React function component styled with Tailwind CSS v4 utilities and no stylesheet. Auto layout
+  becomes `flex`/`flex-col`/`gap-*`/`p-*` on the 4px spacing scale, fixed-width auto layout frames
+  and text become fluid (`w-full max-w-[960px]`; as wide as the frame: `w-full`) and a frame's
+  fixed height a minimum, per-side strokes become `border-b` and the like, and instances are
+  inlined with their overrides (component code is `language: react`). Bound variables become theme
+  utilities (`bg-accent`, `rounded-card`, `text-muted`) that `variable.export {format: "tailwind"}`
+  declares: `@import "tailwindcss";` and an `@theme` block named by namespace (`--color-*`,
+  `--radius-*`, `--text-*`, `--spacing-*`, `--font-*`; a number's namespace and unit come from what
+  layers bind it to), other modes on `[data-<collection>="<mode>"]`. With `mobile: <frame id>` (the
+  same layer names, mobile layout) the code is mobile first: the mobile frame's classes, the
+  desktop frame's that differ behind `lg:`, and layers only on desktop `hidden lg:flex`.
 - **Component code:** `inspect.code {id, language: react|leptos|swiftui|compose}` on a component,
   a component set or a variant writes the component as a reusable unit: React (TSX) with a props
   interface, Leptos with a `#[component]` function (`#[prop]` defaults, `view!` markup), SwiftUI
