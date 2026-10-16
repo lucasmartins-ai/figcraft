@@ -168,3 +168,43 @@ fn a_layer_name_cant_break_out_of_the_header_comment() {
     let name = out.lines().nth(1).and_then(|l| l.strip_prefix("export function ")).and_then(|l| l.strip_suffix("() {")).unwrap_or_default();
     assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "an identifier: {name:?}");
 }
+
+#[test]
+fn slashed_layer_names_and_phone_widths_merge_right() {
+    let mut s = Session::new();
+    let mut frames = Vec::new();
+    for (name, width, dir, sizing) in [("Landing", 1440.0, "horizontal", "hug"), ("Landing mobile", 390.0, "vertical", "fill")] {
+        let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": width, "height": 600, "name": name})));
+        ex(&mut s, "layout.add", json!({"ids": [p], "direction": "vertical"}));
+        let ctas = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 342, "height": 120, "parent": p, "name": "CTAs"})));
+        ex(&mut s, "layout.add", json!({"ids": [ctas], "direction": dir}));
+        let b = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 200, "height": 48, "parent": ctas, "name": "Button/Primary"})));
+        ex(&mut s, "layout.add", json!({"ids": [b], "direction": "horizontal"}));
+        ex(&mut s, "node.set", json!({"id": b, "props": {"sizingH": sizing}}));
+        ex(&mut s, "shape.rectangle", json!({"x": 0, "y": 0, "width": width * 0.8, "height": 1, "parent": p, "props": {"name": "Divider"}}));
+        frames.push(p);
+    }
+    // A layer only the mobile frame has.
+    ex(&mut s, "text.create", json!({"text": "7 dias", "x": 0, "y": 0, "parent": frames[1], "props": {"name": "Tag"}}));
+    let out = code(&mut s, frames[0], json!({"mobile": frames[1]}));
+    let button =
+        out.lines().find(|l| l.contains("lg:") && l.contains("rounded") || l.contains("self-stretch") && l.contains("flex-row")).unwrap_or_default();
+    assert!(button.contains("self-stretch") && button.contains("lg:self-auto"), "the slashed name keeps its mobile classes: {out}");
+    assert!(!out.contains("max-w-[342px] ") || out.contains("lg:max-w-[342px]"), "no phone-width cap below lg: {out}");
+    assert!(out.contains("Only in the mobile frame") && out.contains("Tag"), "{out}");
+    let divider = out.lines().filter(|l| l.contains("<div") && l.contains("h-[1px]") || l.contains("h-px")).count();
+    assert!(out.contains("w-full") && divider <= 2, "{out}");
+}
+
+#[test]
+fn a_variable_named_after_its_namespace_is_its_base() {
+    let mut s = Session::new();
+    ex(&mut s, "variable.createCollection", json!({"name": "Brand"}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "radius", "type": "number", "value": 12}));
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 100, "height": 100})));
+    ex(&mut s, "node.set", json!({"id": f, "props": {"cornerRadius": 12}}));
+    ex(&mut s, "variable.bind", json!({"ids": [f], "field": "cornerRadius", "variable": "radius"}));
+    assert!(code(&mut s, f, json!({})).contains("rounded-base"));
+    let tw = ex(&mut s, "variable.export", json!({"format": "tailwind"}))["text"].as_str().unwrap_or_default().to_string();
+    assert!(tw.contains("--radius-base: 12px;") && !tw.contains("--radius-radius"), "{tw}");
+}

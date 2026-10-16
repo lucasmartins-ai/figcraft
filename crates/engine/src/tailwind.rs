@@ -85,6 +85,8 @@ pub fn theme_name(doc: &Document, v: &Variable) -> String {
     let slug = css_var_name(v.name.rsplit('/').next().unwrap_or(&v.name));
     let slug = slug.trim_start_matches('-');
     let slug = [format!("{ns}s-"), format!("{ns}-")].iter().find_map(|p| slug.strip_prefix(p.as_str())).unwrap_or(slug);
+    // A variable named after its namespace ("radius", "colors") is the namespace's base value.
+    let slug = if slug == ns || slug == format!("{ns}s") { "base" } else { slug };
     format!("--{ns}-{slug}")
 }
 
@@ -325,7 +327,15 @@ fn reset(key: &str) -> Option<&'static str> {
 /// desktop leaves unset). A layer missing on mobile is hidden there.
 fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> Vec<String> {
     let hidden = [("display".to_string(), "hidden".to_string())];
-    let mobile = mobile.unwrap_or(&hidden);
+    // A mobile frame's widths are the phone's, not caps: below the breakpoint boxes fill the page.
+    let fluid: Vec<(String, String)>;
+    let mobile = match mobile {
+        Some(m) => {
+            fluid = m.iter().filter(|(k, _)| k != "max-width").cloned().collect();
+            fluid.as_slice()
+        }
+        None => &hidden,
+    };
     let mut out: Vec<String> = mobile.iter().map(|(_, c)| c.clone()).collect();
     let bp = |c: &str| format!("{BREAKPOINT}:{c}");
     for (_, c) in desktop {
@@ -352,6 +362,7 @@ fn walk(doc: &Document, id: NodeId) -> (String, Vec<(String, String, String)>) {
     let mut m = Markup::new(&ctx, CodeLang::React);
     m.inline = true;
     m.fluid = true;
+    m.fluid_leaves = 0.5;
     m.tokens.tailwind = true;
     m.node(id, None, 2, "");
     (m.markup, m.rules)
@@ -363,12 +374,23 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
     let (mut markup, rules) = walk(doc, id);
     let small: Option<BTreeMap<String, Vec<(String, String)>>> =
         mobile.filter(|m| doc.contains(*m) && *m != id).map(|m| walk(doc, m).1.into_iter().map(|(p, _, d)| (p, classes(&d))).collect());
+    // ponytail: layers only on mobile are listed, not merged in; their place in the tree is ambiguous.
+    let only_mobile: Vec<String> = small
+        .iter()
+        .flat_map(|m| m.keys())
+        .filter(|p| !rules.iter().any(|(d, _, _)| d == *p))
+        .map(|p| p.trim_start_matches('/').split('/').map(|seg| seg.rsplit_once('#').map_or(seg, |(n, _)| n)).collect::<Vec<_>>().join(" › "))
+        .take(20)
+        .collect();
     // Longest class names first, so "card" never rewrites inside "card-2"'s attribute.
     let mut rules = rules;
     rules.sort_by_key(|(_, c, _)| std::cmp::Reverse(c.len()));
+    let paths: Vec<String> = rules.iter().map(|(p, _, _)| p.clone()).collect();
     for (path, class, decls) in &rules {
         let own = classes(decls);
-        let parent = path.rsplit_once('/').map_or("", |(p, _)| p);
+        // Layer names may contain "/": the parent is the longest other path this one extends.
+        let parent =
+            paths.iter().filter(|p| p.len() < path.len() && path.starts_with(&format!("{p}/"))).max_by_key(|p| p.len()).map_or("", String::as_str);
         let list = match &small {
             // Inside a layer hidden on mobile: desktop's classes as they are.
             Some(m) if !path.is_empty() && !m.contains_key(parent) => own.into_iter().map(|(_, c)| c).collect(),
@@ -378,7 +400,10 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
         markup = markup.replace(&format!("className=\"{class}\""), &format!("className=\"{}\"", list.join(" ")));
     }
     let name = component_type_name(&n.name);
-    let mode = if small.is_some() { format!(", mobile first; desktop from {BREAKPOINT}") } else { String::new() };
+    let mut mode = if small.is_some() { format!(", mobile first; desktop from {BREAKPOINT}") } else { String::new() };
+    if !only_mobile.is_empty() {
+        mode.push_str(&format!(". Only in the mobile frame, add by hand with {BREAKPOINT}:hidden: {}", only_mobile.join(", ")));
+    }
     format!(
         "// {} as React + Tailwind CSS v4{mode}. Theme: variable.export {{format: \"tailwind\"}}.\nexport function {name}() {{\n  return (\n{markup}  );\n}}\n",
         // Every JS line terminator, so a layer name can't end the comment and inject code.

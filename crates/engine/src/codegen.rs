@@ -677,6 +677,9 @@ pub(crate) struct Markup<'c, 'a> {
     pub inline: bool,
     /// Auto layout frames and text as fluid boxes (`width: 100%` up to their width) for pages.
     pub fluid: bool,
+    /// With `fluid`, other layers at least this share of the root's width are fluid too (a
+    /// divider, a banner image); smaller ones (icons) keep their size. Default: none.
+    pub fluid_leaves: f64,
 }
 
 impl<'c, 'a> Markup<'c, 'a> {
@@ -693,6 +696,7 @@ impl<'c, 'a> Markup<'c, 'a> {
             rules: Vec::new(),
             inline: false,
             fluid: false,
+            fluid_leaves: f64::INFINITY,
         }
     }
 
@@ -794,9 +798,10 @@ impl<'c, 'a> Markup<'c, 'a> {
         let hugs = n.layout.is_some() || matches!(n.kind, NodeKind::Text(_));
         let hug = (hugs && n.child_layout.sizing_h == Sizing::Hug, hugs && n.child_layout.sizing_v == Sizing::Hug);
         let mut own = css_decls(doc, n, &mut self.tokens, hug);
-        if self.fluid && (n.layout.is_some() || matches!(n.kind, NodeKind::Text(_))) {
-            let page = self.ctx.doc.node(self.ctx.root).map_or(f64::INFINITY, |r| r.width);
-            own = fluid(&own, n.width >= page - 0.5, n.layout.is_some());
+        let page = self.ctx.doc.node(self.ctx.root).map_or(f64::INFINITY, |r| r.width);
+        if self.fluid && (n.layout.is_some() || matches!(n.kind, NodeKind::Text(_)) || (!root && n.width >= page * self.fluid_leaves)) {
+            // Full width, or sized by the flex row (`flex: 1`): no cap needed.
+            own = fluid(&own, n.width >= page - 0.5 || decls.contains("flex: 1 1 0;"), n.layout.is_some());
         }
         if n.layout.is_none() && !n.children.is_empty() && !root && in_flow {
             own.push_str("position: relative;\n");
