@@ -111,6 +111,8 @@ const DENIED: &[&str] = &[
     "edit.redo",
     "edit.repeat",
     "command.batch",
+    // Runs other commands inside (duplicate, edit, export), past this policy, like a batch.
+    "data.fill",
     "view.theme",
 ];
 /// Read-only exceptions to [`DENIED`].
@@ -127,6 +129,9 @@ fn refusal(m: &Manifest, command: &str, params: &Value) -> Option<String> {
     }
     if command == "image.place" && get(params, "path").is_some() {
         return Some("plugins can't read files: pass the image as `data`".into());
+    }
+    if matches!(command, "variable.export" | "codeConnect.export") && get(params, "path").is_some() {
+        return Some("plugins can't write files: leave out `path` to get the text back".into());
     }
     if !m.permissions.allows(command) {
         return Some(format!("`{command}` isn't in the commands {} asked permission for", m.name));

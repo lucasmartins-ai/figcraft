@@ -156,3 +156,15 @@ fn desktop_padding_on_other_sides_is_not_reset_away() {
     assert!(out.contains("p-6 ") && out.contains("lg:py-6 lg:px-16"), "{out}");
     assert!(!out.contains("lg:p-0"), "a reset would undo lg:px-16: {out}");
 }
+
+#[test]
+fn a_layer_name_cant_break_out_of_the_header_comment() {
+    let mut s = Session::new();
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 100, "height": 100, "name": "A\rB\u{2028}alert(1)\u{2029}C\nD"})));
+    let out = code(&mut s, f, json!({}));
+    let header = out.lines().next().unwrap_or_default();
+    assert!(header.starts_with("// ") && header.contains("alert(1)"), "{out}");
+    assert!(!out.contains(['\r', '\u{2028}', '\u{2029}']), "{out:?}");
+    let name = out.lines().nth(1).and_then(|l| l.strip_prefix("export function ")).and_then(|l| l.strip_suffix("() {")).unwrap_or_default();
+    assert!(!name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'), "an identifier: {name:?}");
+}

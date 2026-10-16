@@ -381,6 +381,7 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
     let mode = if small.is_some() { format!(", mobile first; desktop from {BREAKPOINT}") } else { String::new() };
     format!(
         "// {} as React + Tailwind CSS v4{mode}. Theme: variable.export {{format: \"tailwind\"}}.\nexport function {name}() {{\n  return (\n{markup}  );\n}}\n",
-        n.name.replace('\n', " ")
+        // Every JS line terminator, so a layer name can't end the comment and inject code.
+        n.name.chars().take(200).map(|c| if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') { ' ' } else { c }).collect::<String>()
     )
 }
