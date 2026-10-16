@@ -172,6 +172,11 @@ fn files_dialogs_history_and_plugins_are_off_limits() {
         ("data.fill", json!({"id": a, "rows": [{}], "dir": dir.to_string_lossy()})),
         ("variable.export", json!({"format": "css", "path": target})),
         ("codeConnect.export", json!({"path": target})),
+        ("codeConnect.import", json!({"path": "/etc/passwd"})),
+        ("component.playground", json!({"id": a, "path": target})),
+        ("variable.import", json!({"variables": "/etc/passwd"})),
+        ("collab.recoverFile", json!({"path": "copy.figcraft", "file": "x", "session": 1, "client": 1, "seq": 0})),
+        ("window.new", json!({"path": "C:/Windows/win.ini"})),
         ("doc.switch", json!({"index": 0})),
         ("pref.keepTool", json!({})),
         // Without a name it would open inline renaming in the layers panel: a UI request.
