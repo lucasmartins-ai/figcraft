@@ -221,3 +221,33 @@ fn mobile_only_layer_names_cant_break_out_of_the_header_comment() {
     assert!(out.lines().nth(1).is_some_and(|l| l.starts_with("export function ")), "{out}");
     assert!(!out.contains(['\r', '\u{2028}', '\u{2029}']), "{out:?}");
 }
+
+#[test]
+fn page_code_guesses_the_h1_landmarks_and_buttons_nothing_marked() {
+    let mut s = Session::new();
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 900, "name": "Landing"})));
+    ex(&mut s, "layout.add", json!({"ids": [p], "direction": "vertical"}));
+    let nav = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 64, "parent": p, "name": "Nav"})));
+    ex(&mut s, "text.create", json!({"text": "LookADev", "x": 0, "y": 0, "parent": nav, "props": {"name": "Logo", "fontSize": 22}}));
+    ex(&mut s, "text.create", json!({"text": "Seu site em 7 dias", "x": 0, "y": 0, "parent": p, "props": {"name": "Hero copy", "fontSize": 60}}));
+    ex(&mut s, "text.create", json!({"text": "Investimento", "x": 0, "y": 0, "parent": p, "props": {"name": "Pricing title", "fontSize": 32}}));
+    let cta = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 200, "height": 48, "parent": p, "name": "CTA Primary"})));
+    ex(&mut s, "text.create", json!({"text": "Agendar", "x": 0, "y": 0, "parent": cta, "props": {"name": "Label", "fontSize": 16}}));
+    ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1440, "height": 80, "parent": p, "name": "Footer"}));
+    let out = code(&mut s, p, json!({}));
+    assert!(out.contains("<nav className="), "{out}");
+    assert!(out.contains("<h1 className=") && out.contains(">Seu site em 7 dias</h1>"), "{out}");
+    assert!(out.contains("<h2 className=") && out.contains(">Investimento</h2>"), "{out}");
+    assert!(out.contains("<button className=") && out.contains("type=\"button\"") && out.contains(">Agendar</span>"), "{out}");
+    assert!(out.contains("<footer className="), "{out}");
+    assert_eq!(out.matches("<h1").count(), 1);
+    // A heading level 1 annotation elsewhere wins: no second h1 is guessed.
+    let logo = s.doc().unwrap().node(nav).unwrap().children[0];
+    ex(&mut s, "annotation.add", json!({"id": logo, "label": "h1", "category": "accessibility"}));
+    let out = code(&mut s, p, json!({}));
+    assert_eq!(out.matches("<h1").count(), 1, "{out}");
+    assert!(out.contains(">LookADev</h1>"), "{out}");
+    // Plain React code guesses nothing.
+    let react = ex(&mut s, "inspect.code", json!({"id": p, "language": "react"}))["code"].as_str().unwrap_or_default().to_string();
+    assert!(!react.contains("<nav") && !react.contains("<footer"), "{react}");
+}

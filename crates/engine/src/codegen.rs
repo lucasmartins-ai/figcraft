@@ -680,6 +680,10 @@ pub(crate) struct Markup<'c, 'a> {
     /// With `fluid`, other layers at least this share of the root's width are fluid too (a
     /// divider, a banner image); smaller ones (icons) keep their size. Default: none.
     pub fluid_leaves: f64,
+    /// Inside an element that only takes phrasing content (a button, a heading).
+    phrasing: bool,
+    /// Page code's guessed `h1` (computed on first use).
+    h1: Option<Option<NodeId>>,
 }
 
 impl<'c, 'a> Markup<'c, 'a> {
@@ -697,6 +701,8 @@ impl<'c, 'a> Markup<'c, 'a> {
             inline: false,
             fluid: false,
             fluid_leaves: f64::INFINITY,
+            phrasing: false,
+            h1: None,
         }
     }
 
@@ -808,7 +814,13 @@ impl<'c, 'a> Markup<'c, 'a> {
         }
         decls.push_str(&own);
         self.rule(path, &class, decls);
-        let attrs = if root { self.root_attrs.clone() } else { String::new() };
+        let mut sem = crate::semantics::of(doc, n);
+        if self.fluid {
+            // Page code: guess what nothing marked (the h1, landmarks and buttons by name).
+            let h1 = *self.h1.get_or_insert_with(|| crate::semantics::page_h1(doc, self.ctx.root));
+            crate::semantics::infer(n, h1 == Some(n.id), &mut sem);
+        }
+        let attrs = format!("{}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
         let open = |tag: &str| format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>");
         match &n.kind {
             NodeKind::Text(t) => {
@@ -822,18 +834,21 @@ impl<'c, 'a> Markup<'c, 'a> {
                     }
                     (None, _) => html_escape(&t.characters),
                 };
-                self.markup.push_str(&format!("{}{body}</p>\n", open("p")));
+                // Inside a button or heading only phrasing content: plain text is a span.
+                let tag = if self.phrasing && sem.tag.is_none() { "span" } else { sem.element(true) };
+                self.markup.push_str(&format!("{}{body}</{tag}>\n", open(tag)));
             }
             _ => {
                 let kids = self.ctx.kids(n);
                 let slot = self.ctx.param(n, "slot").filter(|_| self.code());
                 let leptos = self.lang == CodeLang::Leptos;
-                let open = open("div");
+                let tag = if self.phrasing && sem.tag.is_none() { "span" } else { sem.element(false) };
+                let open = open(tag);
                 if let Some(p) = slot.filter(|_| kids.is_empty()) {
                     let content = if leptos { format!("{}.as_ref().map(|c| c.run())", self.ident(p)) } else { p.ident.clone() };
-                    self.markup.push_str(&format!("{open}{{{content}}}</div>\n"));
+                    self.markup.push_str(&format!("{open}{{{content}}}</{tag}>\n"));
                 } else if kids.is_empty() || self.ctx.too_deep(depth) {
-                    self.markup.push_str(&format!("{open}</div>\n"));
+                    self.markup.push_str(&format!("{open}</{tag}>\n"));
                 } else {
                     self.markup.push_str(&format!("{open}\n"));
                     // A slot shows the instance's content, or else the main's.
@@ -850,6 +865,8 @@ impl<'c, 'a> Markup<'c, 'a> {
                         None => depth + 1,
                     };
                     let mut seen: Vec<&str> = Vec::new();
+                    let outer = self.phrasing;
+                    self.phrasing = outer || sem.phrasing();
                     // Bottom layer first: later elements paint on top, like the layer order.
                     for k in kids {
                         let Some(kn) = doc.node(k) else { continue };
@@ -857,15 +874,41 @@ impl<'c, 'a> Markup<'c, 'a> {
                         seen.push(&kn.name);
                         self.node(k, Some(n), inner, &format!("{path}/{}#{count}", kn.name));
                     }
+                    self.phrasing = outer;
                     match slot {
                         Some(_) if leptos => self.markup.push_str(&format!("{p1}}}.into_any() }}}}\n")),
                         Some(_) => self.markup.push_str(&format!("{p2}</>\n{p1})}}\n")),
                         None => {}
                     }
-                    self.markup.push_str(&format!("{pad}</div>\n"));
+                    self.markup.push_str(&format!("{pad}</{tag}>\n"));
                 }
             }
         }
+    }
+
+    /// The attributes `sem` adds (href, button type, image text, aria-label, hidden), quoted
+    /// for the language: HTML attribute strings, JSX string expressions, Rust string literals.
+    fn sem_attrs(&self, sem: &crate::semantics::Semantics) -> String {
+        let quote = |v: &str| match self.lang {
+            CodeLang::React => format!("{{{}}}", serde_json::Value::String(v.to_string())),
+            CodeLang::Leptos => format!("{v:?}"),
+            _ => format!("\"{}\"", v.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")),
+        };
+        let mut out = String::new();
+        if let Some(h) = &sem.href {
+            out.push_str(&format!(" href={}", quote(h)));
+        }
+        if sem.tag == Some("button") && sem.href.is_none() {
+            out.push_str(" type=\"button\"");
+        }
+        if sem.decorative {
+            out.push_str(" aria-hidden=\"true\"");
+        } else if let Some(alt) = &sem.alt {
+            out.push_str(&format!(" role=\"img\" aria-label={}", quote(alt)));
+        } else if let Some(label) = &sem.label {
+            out.push_str(&format!(" aria-label={}", quote(label)));
+        }
+        out
     }
 }
 

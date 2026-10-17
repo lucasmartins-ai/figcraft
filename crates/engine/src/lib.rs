@@ -44,6 +44,7 @@ pub mod plugins;
 pub mod proto_run;
 pub mod rename;
 pub mod rotation_origin;
+pub mod semantics;
 pub mod shape_handles;
 pub mod shapebuilder;
 pub mod snap;
@@ -1657,6 +1658,8 @@ mod select_area_tests;
 mod selection_behaviour_tests;
 #[cfg(test)]
 mod selection_depth_tests;
+#[cfg(test)]
+mod semantics_tests;
 #[cfg(test)]
 mod shape_handles_tests;
 #[cfg(test)]
