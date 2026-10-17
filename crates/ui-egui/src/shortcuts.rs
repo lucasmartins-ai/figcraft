@@ -289,9 +289,9 @@ fn key_event(app: &mut FigApp, key: Key, physical: Option<Key>, m: Modifiers, re
     if m.is_none() && !repeat && opacity_digit(app, key, now) {
         return true;
     }
-    // Enter while the pen is drawing finishes it.
+    // Enter while the pen is drawing ends the path as Escape does.
     if key == Key::Enter && app.session.tool.pen.is_some() {
-        let _ = app.session.pen_finish();
+        let _ = app.session.pen_end();
         return true;
     }
     false
