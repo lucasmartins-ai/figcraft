@@ -6,6 +6,11 @@
 //! `--control <port>` (or `FIGCRAFT_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"method":"engine.execute","params":{"command":"shape.rectangle","params":{"x":0,"y":0,"width":100,"height":100}}}`
 //! → `{"id":1,"ok":true,"result":{…}}`. Methods: `figcraft_ui_egui::control`.
+//!
+//! `--automation-read-root <dir>` / `--automation-write-root <dir>` (each repeatable) confine the
+//! files the window and the control channel read and write (`figcraft_engine::file_access`); the
+//! app's own folders (settings, recovery copies, installed plugins) and opening the files given on
+//! the command line are not. A root that isn't an existing folder stops the app at startup.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -15,6 +20,8 @@ mod args;
 mod control_server;
 mod gamepad;
 mod graphics;
+#[cfg(target_os = "linux")]
+mod linux_window;
 mod recovery;
 mod services;
 mod startup;
@@ -119,6 +126,17 @@ fn main() -> eframe::Result {
         return Ok(());
     }
     let args = args::parse(&args);
+    let roots = match (
+        args.read_roots.is_empty() && args.write_roots.is_empty(),
+        figcraft_engine::file_access::Roots::new(&args.read_roots, &args.write_roots),
+    ) {
+        (true, _) => None,
+        (false, Ok(r)) => Some(Arc::new(r)),
+        (false, Err(e)) => {
+            eprintln!("FigCraft: {e}");
+            std::process::exit(2);
+        }
+    };
     let port = args.control.or_else(|| std::env::var("FIGCRAFT_CONTROL_PORT").ok().and_then(|p| p.parse().ok()));
     // System fonts: index them in the background, then wake the UI (an idle window draws no frames)
     // to lay text out again with them.
@@ -174,6 +192,7 @@ fn main() -> eframe::Result {
     // open (no frame then).
     figcraft_ui_egui::i18n::set(&session.prefs.language, figcraft_ui_egui::Services::system_language(&svc).as_deref());
     let mut fig = FigApp::new(session, Box::new(svc));
+    fig.automation_roots = roots;
     fig.ui.home = false;
     fig.note_recovered(recovered.copies);
     if let Some(link) = &args.join {
@@ -192,21 +211,18 @@ fn main() -> eframe::Result {
         .with_inner_size([1440.0, 900.0])
         .with_min_inner_size([800.0, 500.0])
         .with_drag_and_drop(true);
-    // The tab strip is the title bar: macOS keeps its window buttons inset into it; elsewhere the
-    // window is frameless and FigCraft draws the buttons and resize edges.
-    if cfg!(target_os = "macos") {
-        viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
-        fig.ui.title_bar = figcraft_ui_egui::TitleBar::Inset;
-    } else {
-        viewport = viewport.with_decorations(false);
-        fig.ui.title_bar = figcraft_ui_egui::TitleBar::Custom;
-    }
+    // Start frameless on Linux; the app creator checks the actual display backend
+    // before enabling a client-side frame. Other windows inherit that decision.
+    fig.ui.title_bar = desktop_title_bar();
+    viewport = window_chrome(viewport, fig.ui.title_bar);
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
     let mut options = eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, ..Default::default() };
     graphics::configure(&mut options.wgpu_options);
     figcraft_ui_egui::windows::install(fig);
+    #[cfg(target_os = "linux")]
+    let linux_display = linux_window::display_socket();
     // Registered before the event loop starts, so it catches the Finder event that launched the app
     // as well as later ones. Lives until the event loop returns; the app creator only borrows it.
     #[cfg(target_os = "macos")]
@@ -217,6 +233,11 @@ fn main() -> eframe::Result {
         "FigCraft",
         options,
         Box::new(move |_cc| {
+            #[cfg(target_os = "linux")]
+            if linux_window::needs_native_frame(_cc, linux_display) {
+                let _ = with_app(|fig| fig.ui.title_bar = figcraft_ui_egui::TitleBar::Native);
+                _cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(true));
+            }
             Ok(Box::new(App {
                 queue,
                 ctx_slot,
@@ -232,4 +253,29 @@ fn main() -> eframe::Result {
         startup::failed(e, port.is_some());
     }
     result
+}
+
+fn desktop_title_bar() -> figcraft_ui_egui::TitleBar {
+    use figcraft_ui_egui::TitleBar;
+    if cfg!(target_os = "macos") { TitleBar::Inset } else { TitleBar::Custom }
+}
+
+fn window_chrome(viewport: egui::ViewportBuilder, title_bar: figcraft_ui_egui::TitleBar) -> egui::ViewportBuilder {
+    use figcraft_ui_egui::TitleBar;
+    match title_bar {
+        TitleBar::Inset => viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false),
+        TitleBar::Native => viewport.with_decorations(true),
+        TitleBar::Custom => viewport.with_decorations(false),
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_window_tests {
+    #[test]
+    fn linux_starts_with_the_existing_frameless_title_bar() {
+        let bar = super::desktop_title_bar();
+        assert_eq!(bar, figcraft_ui_egui::TitleBar::Custom);
+        let viewport = super::window_chrome(egui::ViewportBuilder::default(), bar);
+        assert_eq!(viewport.decorations, Some(false));
+    }
 }

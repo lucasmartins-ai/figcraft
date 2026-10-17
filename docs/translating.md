@@ -22,7 +22,7 @@ keeps Frame, Dev Mode and Smart animate as familiar tool names and uses « » qu
 was machine-drafted and reviewed by a native speaker.
 `es-419`), French (`fr`), German (`de`), Brazilian Portuguese (`pt-BR`), Japanese (`ja`), Korean (`ko`)
 and Simplified Chinese (`zh-Hans`), machine-drafted and waiting for native speakers' review, and
-Swedish (`sv`), which translates every UI string and some command labels.
+Swedish (`sv`), which translates every UI string, command label and menu wording.
 
 ## The catalogs
 
@@ -112,3 +112,7 @@ add the key to `en.toml` and to each complete language (Spanish and Russian); th
 
 Labels from the engine and document crates (tool names, blend modes, easing curves…) are looked up
 at display with `tr(x.label())`; they are listed in `dynamic_labels` in `i18n_tests.rs`.
+
+The importers' fixed notes (the string literals passed to `warn` in `crates/format/src/fig` and
+`crates/format/src/rest`) are keys too: the import report shows them in the UI language, so a new
+note goes into `en.toml` and each complete language. Notes built with `format!` show in English.
