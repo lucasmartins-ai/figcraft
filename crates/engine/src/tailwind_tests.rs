@@ -251,3 +251,13 @@ fn page_code_guesses_the_h1_landmarks_and_buttons_nothing_marked() {
     let react = ex(&mut s, "inspect.code", json!({"id": p, "language": "react"}))["code"].as_str().unwrap_or_default().to_string();
     assert!(!react.contains("<nav") && !react.contains("<footer"), "{react}");
 }
+
+#[test]
+fn page_code_leaves_resets_to_tailwind_preflight() {
+    let mut s = Session::new();
+    let (p, _) = page(&mut s, "Landing", 1440.0, "horizontal");
+    let out = code(&mut s, p, json!({}));
+    for leak in ["box-sizing", "[margin:0]", "text-decoration", "cursor"] {
+        assert!(!out.contains(leak), "{leak} in {out}");
+    }
+}

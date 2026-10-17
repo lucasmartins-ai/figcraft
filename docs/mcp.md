@@ -1226,6 +1226,11 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   - A layer filled with an image is `role="img"` with `aria-label` from its `alt:` annotation, else
     its layer name, unless it is marked `decorative`.
 
+  The HTML and React stylesheets reset the browser defaults the design doesn't have: every
+  element is `box-sizing: border-box` (widths include padding and strokes, as on the canvas),
+  text has no margins, and links and buttons inherit colour and font with no underline or button
+  chrome. The reset comes first in each rule, so the layer's own declarations win.
+
   Only http(s), mailto, tel, relative and `#` links are written; others (`javascript:`, `data:`) are
   left out. Attribute values are escaped for the language (HTML entities, JSX string expressions,
   Rust string literals).
