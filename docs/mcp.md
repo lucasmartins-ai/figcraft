@@ -328,6 +328,16 @@ string (or number) sets their text, `{text?, fill?, visible?}` sets more; `name`
 copy is exported there as `<name>.<format>` (png by default) after the edits land. Returns `{ids,
 missing (keys no layer is named), files?}`.
 
+Copy that changes length per row can size itself: `{"Headline": {"text": "…", "fit": {"maxLines": 2}}}` runs
+`text.fit` on those layers after the text is set.
+
+`text.fit {ids?, maxLines?, minSize?, orphans?}` gives a text layer with a fixed width (auto height or fixed size)
+the largest font size, down to `minSize` (default 60% of the current), at which it stays within `maxLines` lines
+and its box's height. Every style run scales by the same factor. A one-word last line (an orphan) is avoided by
+shrinking up to 8% more, else by keeping the last two words together with a no-break space. Text never grows.
+Returns `{fitted: [{id, fontSize, lines, fits, orphan}]}`. Use case: a carousel slide "Lighthouse 100. Abre em
+menos de 1s." at 96px broke into three lines with "1s." alone; with `fit: {maxLines: 3}` it is two balanced lines.
+
 ```json
 {"command": "data.fill", "params": {"id": 80, "dir": "out/carousel", "scale": 1, "rows": [
   {"name": "01-capa", "Headline": "Site e WhatsApp com IA em 7 dias", "Badge": {"visible": true}},

@@ -16,7 +16,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![spec!(
         "data.fill",
         "Fill copies with data",
-        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written)}",
+        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?, fit? (true or text.fit's {maxLines?, minSize?, orphans?}: size the text to its box)}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written)}",
         false,
         fill
     )]
@@ -67,16 +67,23 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
                     }
                     continue;
                 }
-                let (text, fill, visible) = match value {
-                    Value::Object(o) => {
-                        (o.get("text").map(text_of), o.get("fill").and_then(Value::as_str), o.get("visible").and_then(Value::as_bool))
-                    }
-                    v => (Some(text_of(v)), None, None),
+                let (text, fill, visible, fit) = match value {
+                    Value::Object(o) => (
+                        o.get("text").map(text_of),
+                        o.get("fill").and_then(Value::as_str),
+                        o.get("visible").and_then(Value::as_bool),
+                        o.get("fit").cloned().filter(|f| !matches!(f, Value::Bool(false) | Value::Null)),
+                    ),
+                    v => (Some(text_of(v)), None, None, None),
                 };
+                let mut texts = Vec::new();
                 for t in targets {
                     let is_text = s.doc()?.node(t).is_some_and(|n| matches!(n.kind, figcraft_doc::NodeKind::Text(_)));
                     if let Some(text) = text.as_ref().filter(|_| is_text) {
                         s.execute("text.set", &json!({"id": t, "characters": text}))?;
+                    }
+                    if is_text {
+                        texts.push(t.0);
                     }
                     if let Some(f) = fill {
                         s.execute("node.set", &json!({"id": t, "props": {"fills": [f]}}))?;
@@ -84,6 +91,12 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
                     if let Some(v) = visible {
                         s.execute("node.set", &json!({"id": t, "props": {"visible": v}}))?;
                     }
+                }
+                // `fit: true` or `{maxLines?, minSize?, orphans?}`: size the text to its box.
+                if let Some(f) = fit.filter(|_| !texts.is_empty()) {
+                    let mut params = if f.is_object() { f } else { json!({}) };
+                    params["ids"] = json!(texts);
+                    s.execute("text.fit", &params)?;
                 }
             }
             ids.push((copy, name));

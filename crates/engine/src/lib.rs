@@ -59,6 +59,7 @@ pub mod synthetic_ds;
 pub mod tailwind;
 pub mod templates;
 pub mod textedit;
+pub mod textfit;
 pub mod textpreview;
 pub mod tools;
 pub mod vectoredit;
@@ -1786,6 +1787,8 @@ mod text_motion_tests;
 mod text_style_picker_tests;
 #[cfg(test)]
 mod text_tail_tests;
+#[cfg(test)]
+mod textfit_tests;
 #[cfg(test)]
 mod theme_pages_tests;
 #[cfg(test)]
