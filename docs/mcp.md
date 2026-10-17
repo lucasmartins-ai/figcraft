@@ -1188,7 +1188,7 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   element it is on a page, from what the file already says:
   - A click interaction that opens a URL makes the layer a link: `<a href="https://…">`. One that
     navigates or scrolls to a frame links to that frame's anchor (`href="#pricing-section"`, from the
-    frame name). Any other click action makes it `<button type="button">`, and plain text inside a
+    frame name), and that frame's code carries the matching `id="pricing-section"`. Any other click action makes it `<button type="button">`, and plain text inside a
     button or heading is a `<span>`.
   - Dev Mode annotations in the **Accessibility** category, one instruction per line: an element
     (`h1`…`h6`, `nav`, `header`, `footer`, `main`, `section`, `article`, `aside`, `ul`, `ol`, `li`,

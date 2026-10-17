@@ -150,3 +150,23 @@ pub fn of(doc: &Document, n: &Node) -> Semantics {
     }
     s
 }
+
+/// The layers click interactions navigate or scroll to: their code carries `id="<anchor>"`, so
+/// the links [`of`] writes (`#frame-name`) land on them.
+pub fn link_targets(doc: &Document) -> Vec<NodeId> {
+    use figcraft_doc::proto::Action;
+    let mut out: Vec<NodeId> = doc
+        .nodes()
+        .flat_map(|n| n.interactions.iter())
+        .filter(|i| matches!(i.trigger, figcraft_doc::proto::Trigger::OnClick))
+        .flat_map(|i| i.actions.iter())
+        .filter_map(|a| match a {
+            Action::Navigate { dest, .. } | Action::ScrollTo { dest, .. } => Some(*dest),
+            _ => None,
+        })
+        .take(10_000)
+        .collect();
+    out.sort_by_key(|id| id.0);
+    out.dedup();
+    out
+}

@@ -643,6 +643,8 @@ pub(crate) struct Markup<'c, 'a> {
     pub rules: Vec<(String, String, String)>,
     /// Inside an element that only takes phrasing content (a button, a heading).
     phrasing: bool,
+    /// The layers links go to (computed on first use).
+    targets: Option<Vec<NodeId>>,
 }
 
 impl<'c, 'a> Markup<'c, 'a> {
@@ -658,6 +660,7 @@ impl<'c, 'a> Markup<'c, 'a> {
             root_attrs: String::new(),
             rules: Vec::new(),
             phrasing: false,
+            targets: None,
         }
     }
 
@@ -765,7 +768,14 @@ impl<'c, 'a> Markup<'c, 'a> {
         decls.push_str(&own);
         self.rule(path, &class, decls);
         let sem = crate::semantics::of(doc, n);
-        let attrs = format!("{}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
+        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
+        // A frame a link goes to carries the anchor the link names.
+        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
+            format!(" id=\"{}\"", crate::semantics::anchor(&n.name).replace('"', ""))
+        } else {
+            String::new()
+        };
+        let attrs = format!("{}{id_attr}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
         let open = |tag: &str| format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>");
         match &n.kind {
             NodeKind::Text(t) => {
