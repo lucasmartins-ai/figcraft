@@ -684,6 +684,8 @@ pub(crate) struct Markup<'c, 'a> {
     phrasing: bool,
     /// Page code's guessed `h1` (computed on first use).
     h1: Option<Option<NodeId>>,
+    /// The layers links go to (computed on first use).
+    targets: Option<Vec<NodeId>>,
 }
 
 impl<'c, 'a> Markup<'c, 'a> {
@@ -703,6 +705,7 @@ impl<'c, 'a> Markup<'c, 'a> {
             fluid_leaves: f64::INFINITY,
             phrasing: false,
             h1: None,
+            targets: None,
         }
     }
 
@@ -820,7 +823,14 @@ impl<'c, 'a> Markup<'c, 'a> {
             let h1 = *self.h1.get_or_insert_with(|| crate::semantics::page_h1(doc, self.ctx.root));
             crate::semantics::infer(n, h1 == Some(n.id), &mut sem);
         }
-        let attrs = format!("{}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
+        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
+        // A frame a link goes to carries the anchor the link names.
+        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
+            format!(" id=\"{}\"", crate::semantics::anchor(&n.name).replace('"', ""))
+        } else {
+            String::new()
+        };
+        let attrs = format!("{}{id_attr}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
         let open = |tag: &str| format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>");
         match &n.kind {
             NodeKind::Text(t) => {

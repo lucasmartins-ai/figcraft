@@ -33,7 +33,9 @@ fn prototype_clicks_become_links_and_buttons() {
     // Navigating to a frame links to its anchor.
     ex(&mut s, "proto.interaction.remove", json!({"id": buy, "index": 0}));
     ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "scrollTo", "dest": pricing}}));
-    assert!(code(&mut s, p, "html").contains("href=\"#pricing-section\""));
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("href=\"#pricing-section\""), "{html}");
+    assert!(html.contains("<div class=\"pricing-section\" id=\"pricing-section\">"), "the target carries the anchor: {html}");
     // Any other click is a button, and its text is phrasing content.
     ex(&mut s, "proto.interaction.remove", json!({"id": buy, "index": 0}));
     ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
