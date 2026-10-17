@@ -96,3 +96,26 @@ fn unsafe_urls_never_reach_the_code() {
     assert_eq!(anchor("Preços & planos"), "preços-planos");
     assert_eq!(anchor("!!!"), "section");
 }
+
+#[test]
+fn stylesheets_reset_browser_defaults_the_design_doesnt_have() {
+    let mut s = Session::new();
+    let (p, title, buy, _) = page(&mut s);
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "h1", "category": "accessibility"}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "openUrl", "url": "/agendar"}}));
+    let html = code(&mut s, p, "html");
+    let rule = |class: &str| html.split(&format!(".{class} {{\n")).nth(1).and_then(|r| r.split('}').next()).unwrap_or_default().to_string();
+    // Boxes measure like the canvas: width includes padding and strokes.
+    assert!(rule("page").contains("box-sizing: border-box;"), "{html}");
+    assert!(rule("title").contains("margin: 0;"), "headings have no browser margins: {html}");
+    assert!(rule("label").contains("margin: 0;"), "nor does other text: {html}");
+    let link = rule("buy");
+    assert!(link.contains("color: inherit;") && link.contains("text-decoration: none;"), "{html}");
+    // The reset comes before the layer's own look, so its declarations win.
+    assert!(link.find("text-decoration").unwrap_or(usize::MAX) < link.find("width:").unwrap_or(0), "{link}");
+    ex(&mut s, "proto.interaction.remove", json!({"id": buy, "index": 0}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
+    let html = code(&mut s, p, "html");
+    let button = html.split(".buy {\n").nth(1).and_then(|r| r.split('}').next()).unwrap_or_default();
+    assert!(button.contains("border: none;") && button.contains("background: none;") && button.contains("font: inherit;"), "{html}");
+}

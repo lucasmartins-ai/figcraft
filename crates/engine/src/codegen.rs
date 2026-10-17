@@ -765,9 +765,25 @@ impl<'c, 'a> Markup<'c, 'a> {
         if n.layout.is_none() && !n.children.is_empty() && !root && in_flow {
             own.push_str("position: relative;\n");
         }
+        let sem = crate::semantics::of(doc, n);
+        // Browser defaults the design doesn't have, before the layer's own declarations so they
+        // win: boxes measure like the canvas, text has no margins, links and buttons look like
+        // their layer.
+        let reset = match (sem.tag, &n.kind) {
+            (Some("a"), _) => "color: inherit;\ntext-decoration: none;\n",
+            (Some("button"), _) => {
+                "border: none;\nbackground: none;\npadding: 0;\nfont: inherit;\ncolor: inherit;\ntext-align: inherit;\ncursor: pointer;\n"
+            }
+            (Some("ul" | "ol"), _) => "margin: 0;\npadding: 0;\nlist-style: none;\n",
+            (Some("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "label"), _) | (_, NodeKind::Text(_)) => "margin: 0;\n",
+            _ => "",
+        };
+        // After the placement, before the layer's own look. Widths include padding and strokes,
+        // as on the canvas.
+        decls.push_str("box-sizing: border-box;\n");
+        decls.push_str(reset);
         decls.push_str(&own);
         self.rule(path, &class, decls);
-        let sem = crate::semantics::of(doc, n);
         let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
         // A frame a link goes to carries the anchor the link names.
         let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
