@@ -331,6 +331,12 @@ missing (keys no layer is named), files?}`.
 Copy that changes length per row can size itself: `{"Headline": {"text": "…", "fit": {"maxLines": 2}}}` runs
 `text.fit` on those layers after the text is set.
 
+`formats: [{name?, width, height}]` makes every row once per size: the copy is resized so its auto layout
+reflows, named `<name>-<format name>` (default `<width>x<height>`), and placed under the row's previous
+format. Text `fit` runs after the resize. Use case: one call turns a 1080×1350 post into feed, story
+(1080×1920) and square (1080×1080) files for each slide of a carousel; the frame must be auto layout (fixed-
+position children keep their place).
+
 `text.fit {ids?, maxLines?, minSize?, orphans?}` gives a text layer with a fixed width (auto height or fixed size)
 the largest font size, down to `minSize` (default 60% of the current), at which it stays within `maxLines` lines
 and its box's height. Every style run scales by the same factor. A one-word last line (an orphan) is avoided by

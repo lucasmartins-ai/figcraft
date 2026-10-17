@@ -16,7 +16,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![spec!(
         "data.fill",
         "Fill copies with data",
-        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?, fit? (true or text.fit's {maxLines?, minSize?, orphans?}: size the text to its box)}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written)}",
+        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?, fit? (true or text.fit's {maxLines?, minSize?, orphans?}: size the text to its box)}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), formats? ([{name?, width, height}]: each row once per size, the copy resized so its auto layout reflows and named <name>-<format name>; e.g. feed 1080×1350, story 1080×1920, square 1080×1080), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written)}",
         false,
         fill
     )]
@@ -48,58 +48,90 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         let n = doc.node(src).ok_or_else(|| bad(CMD, "no such layer"))?;
         (n.width, n.name.clone())
     };
+    // `formats`: each row once per size, the copy resized so its auto layout reflows.
+    let formats: Vec<Option<(String, f64, f64)>> = match get(p, "formats") {
+        None | Some(Value::Null) => vec![None],
+        Some(Value::Array(a)) if !a.is_empty() && a.len() <= 12 => a
+            .iter()
+            .map(|f| {
+                let (w, h) = (f.get("width").and_then(Value::as_f64), f.get("height").and_then(Value::as_f64));
+                let name = f.get("name").and_then(Value::as_str).unwrap_or_default().trim().to_string();
+                match (w, h) {
+                    (Some(w), Some(h)) if w.is_finite() && h.is_finite() && (1.0..=20_000.0).contains(&w) && (1.0..=20_000.0).contains(&h) => {
+                        Ok(Some((if name.is_empty() { format!("{}x{}", w as i64, h as i64) } else { name }, w, h)))
+                    }
+                    _ => Err(bad(CMD, "formats: [{name?, width, height}] with sizes from 1 to 20000")),
+                }
+            })
+            .collect::<Result<_>>()?,
+        Some(_) => return Err(bad(CMD, "formats: [{name?, width, height}] (1 to 12 sizes)")),
+    };
+    let column = formats.iter().flatten().map(|f| f.1).fold(width, f64::max);
     let mut missing: Vec<String> = Vec::new();
     let ids = s.grouped("Fill copies with data", |s| {
-        let mut ids = Vec::with_capacity(rows.len());
+        let mut ids = Vec::with_capacity(rows.len() * formats.len());
         for (i, row) in rows.iter().enumerate() {
-            let dx = (width + gap) * (i as f64 + 1.0);
-            let dup = s.execute("edit.duplicate", &json!({"ids": [src], "dx": dx, "dy": 0}))?;
-            let copy = dup["ids"].get(0).and_then(id_of).ok_or_else(|| bad(CMD, "the frame couldn't be duplicated"))?;
-            let Some(fields) = row.as_object() else { continue };
-            let name = fields.get("name").and_then(Value::as_str).map_or_else(|| format!("{base} {}", i + 1), str::to_string);
-            s.execute("node.set", &json!({"id": copy, "props": {"name": name}}))?;
-            for (key, value) in fields.iter().filter(|(k, _)| k.as_str() != "name") {
-                let doc = s.doc()?;
-                let targets: Vec<_> = doc.subtree(copy).into_iter().filter(|t| *t != copy && doc.node(*t).is_some_and(|n| n.name == *key)).collect();
-                if targets.is_empty() {
-                    if !missing.contains(key) {
-                        missing.push(key.clone());
+            let mut dy = 0.0;
+            for fmt in &formats {
+                // Rows go right; a row's formats stack downwards.
+                let dx = (column + gap) * (i as f64 + 1.0);
+                let dup = s.execute("edit.duplicate", &json!({"ids": [src], "dx": dx, "dy": dy}))?;
+                let copy = dup["ids"].get(0).and_then(id_of).ok_or_else(|| bad(CMD, "the frame couldn't be duplicated"))?;
+                let Some(fields) = row.as_object() else { continue };
+                let name = fields.get("name").and_then(Value::as_str).map_or_else(|| format!("{base} {}", i + 1), str::to_string);
+                let name = match fmt {
+                    Some((suffix, w, h)) => {
+                        s.execute("node.set", &json!({"id": copy, "props": {"width": w, "height": h}}))?;
+                        dy += h + gap;
+                        format!("{name}-{suffix}")
                     }
-                    continue;
-                }
-                let (text, fill, visible, fit) = match value {
-                    Value::Object(o) => (
-                        o.get("text").map(text_of),
-                        o.get("fill").and_then(Value::as_str),
-                        o.get("visible").and_then(Value::as_bool),
-                        o.get("fit").cloned().filter(|f| !matches!(f, Value::Bool(false) | Value::Null)),
-                    ),
-                    v => (Some(text_of(v)), None, None, None),
+                    None => name,
                 };
-                let mut texts = Vec::new();
-                for t in targets {
-                    let is_text = s.doc()?.node(t).is_some_and(|n| matches!(n.kind, figcraft_doc::NodeKind::Text(_)));
-                    if let Some(text) = text.as_ref().filter(|_| is_text) {
-                        s.execute("text.set", &json!({"id": t, "characters": text}))?;
+                s.execute("node.set", &json!({"id": copy, "props": {"name": name}}))?;
+                for (key, value) in fields.iter().filter(|(k, _)| k.as_str() != "name") {
+                    let doc = s.doc()?;
+                    let targets: Vec<_> =
+                        doc.subtree(copy).into_iter().filter(|t| *t != copy && doc.node(*t).is_some_and(|n| n.name == *key)).collect();
+                    if targets.is_empty() {
+                        if !missing.contains(key) {
+                            missing.push(key.clone());
+                        }
+                        continue;
                     }
-                    if is_text {
-                        texts.push(t.0);
+                    let (text, fill, visible, fit) = match value {
+                        Value::Object(o) => (
+                            o.get("text").map(text_of),
+                            o.get("fill").and_then(Value::as_str),
+                            o.get("visible").and_then(Value::as_bool),
+                            o.get("fit").cloned().filter(|f| !matches!(f, Value::Bool(false) | Value::Null)),
+                        ),
+                        v => (Some(text_of(v)), None, None, None),
+                    };
+                    let mut texts = Vec::new();
+                    for t in targets {
+                        let is_text = s.doc()?.node(t).is_some_and(|n| matches!(n.kind, figcraft_doc::NodeKind::Text(_)));
+                        if let Some(text) = text.as_ref().filter(|_| is_text) {
+                            s.execute("text.set", &json!({"id": t, "characters": text}))?;
+                        }
+                        if is_text {
+                            texts.push(t.0);
+                        }
+                        if let Some(f) = fill {
+                            s.execute("node.set", &json!({"id": t, "props": {"fills": [f]}}))?;
+                        }
+                        if let Some(v) = visible {
+                            s.execute("node.set", &json!({"id": t, "props": {"visible": v}}))?;
+                        }
                     }
-                    if let Some(f) = fill {
-                        s.execute("node.set", &json!({"id": t, "props": {"fills": [f]}}))?;
-                    }
-                    if let Some(v) = visible {
-                        s.execute("node.set", &json!({"id": t, "props": {"visible": v}}))?;
+                    // `fit: true` or `{maxLines?, minSize?, orphans?}`: size the text to its box.
+                    if let Some(f) = fit.filter(|_| !texts.is_empty()) {
+                        let mut params = if f.is_object() { f } else { json!({}) };
+                        params["ids"] = json!(texts);
+                        s.execute("text.fit", &params)?;
                     }
                 }
-                // `fit: true` or `{maxLines?, minSize?, orphans?}`: size the text to its box.
-                if let Some(f) = fit.filter(|_| !texts.is_empty()) {
-                    let mut params = if f.is_object() { f } else { json!({}) };
-                    params["ids"] = json!(texts);
-                    s.execute("text.fit", &params)?;
-                }
+                ids.push((copy, name));
             }
-            ids.push((copy, name));
         }
         Ok(ids)
     })?;

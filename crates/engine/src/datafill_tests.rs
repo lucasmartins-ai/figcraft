@@ -83,3 +83,37 @@ fn copies_export_to_a_folder_and_bad_input_is_refused() {
         assert!(s.execute("data.fill", &bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn each_row_comes_in_every_format() {
+    let mut s = Session::new();
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 1080, "height": 1350, "name": "Post"})));
+    ex(&mut s, "layout.add", json!({"ids": [f], "direction": "vertical"}));
+    ex(&mut s, "node.set", json!({"id": f, "props": {"sizingV": "fixed", "padding": 80}}));
+    let t = idv(&ex(&mut s, "text.create", json!({"text": "Título", "x": 0, "y": 0, "parent": f, "props": {"name": "Title", "fontSize": 96}})));
+    ex(&mut s, "node.set", json!({"id": t, "props": {"sizingH": "fill", "textAutoResize": "height"}}));
+    let r = ex(
+        &mut s,
+        "data.fill",
+        json!({"id": f, "formats": [
+        {"name": "feed", "width": 1080, "height": 1350}, {"name": "story", "width": 1080, "height": 1920}, {"width": 1080, "height": 1080}
+    ], "rows": [{"name": "capa", "Title": "Site em 7 dias"}, {"name": "prova", "Title": "Lighthouse 100"}]}),
+    );
+    let ids: Vec<NodeId> = r["ids"].as_array().unwrap().iter().map(|v| NodeId(v.as_u64().unwrap())).collect();
+    assert_eq!(ids.len(), 6);
+    let doc = s.doc().unwrap();
+    let names: Vec<String> = ids.iter().map(|i| doc.node(*i).unwrap().name.clone()).collect();
+    assert_eq!(names, ["capa-feed", "capa-story", "capa-1080x1080", "prova-feed", "prova-story", "prova-1080x1080"]);
+    let size = |i: NodeId| (doc.node(i).unwrap().width, doc.node(i).unwrap().height);
+    assert_eq!(size(ids[1]), (1080.0, 1920.0));
+    assert_eq!(size(ids[2]), (1080.0, 1080.0));
+    assert_eq!(text(&s, ids[4], "Title"), "Lighthouse 100");
+    // Formats of a row stack downwards; rows go right without overlapping.
+    let at = |i: NodeId| (doc.node(i).unwrap().transform.as_coeffs()[4], doc.node(i).unwrap().transform.as_coeffs()[5]);
+    assert_eq!(at(ids[0]).0, at(ids[1]).0);
+    assert!(at(ids[1]).1 >= at(ids[0]).1 + 1350.0);
+    assert!(at(ids[3]).0 >= at(ids[0]).0 + 1080.0);
+    for bad in [json!([]), json!([{"width": 0, "height": 10}]), json!("feed")] {
+        assert!(s.execute("data.fill", &json!({"id": f, "rows": [{}], "formats": bad})).is_err(), "{bad}");
+    }
+}
