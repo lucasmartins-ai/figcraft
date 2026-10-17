@@ -787,7 +787,10 @@ impl<'c, 'a> Markup<'c, 'a> {
             }
         }
         // Nested instances are calls (component code), in a wrapper that places them when needed.
-        if self.code() && !self.inline && !root && matches!(n.kind, NodeKind::Instance { .. }) {
+        // Page code inlines instances, except those connected to code (codeConnect.set): their
+        // snippet, e.g. a design-system `<Button>`.
+        let connected = self.inline && crate::code_connect::link(doc, n.id, CodeLang::React).is_some();
+        if self.code() && (!self.inline || connected) && !root && matches!(n.kind, NodeKind::Instance { .. }) {
             let at = depth + usize::from(!decls.is_empty());
             let run = if self.lang == CodeLang::Leptos { ".run()" } else { "" };
             let inner = match self.ctx.param(n, "mainComponent") {

@@ -261,3 +261,32 @@ fn page_code_leaves_resets_to_tailwind_preflight() {
         assert!(!out.contains(leak), "{leak} in {out}");
     }
 }
+
+#[test]
+fn instances_connected_to_code_are_their_snippet_with_one_import() {
+    let mut s = Session::new();
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 160, "height": 44, "name": "Button"})));
+    ex(&mut s, "layout.add", json!({"ids": [f], "direction": "horizontal"}));
+    let label = idv(&ex(&mut s, "text.create", json!({"text": "Botão", "x": 0, "y": 0, "parent": f, "props": {"name": "Label"}})));
+    let comp = idv(&ex(&mut s, "component.create", json!({"ids": [f]})));
+    ex(&mut s, "component.addProperty", json!({"id": comp, "name": "Label", "type": "text", "layer": label}));
+    ex(
+        &mut s,
+        "codeConnect.set",
+        json!({"id": comp, "language": "react", "importPath": "@/components/ui/button", "name": "Button", "template": "<Button size=\"lg\">{Label}</Button>"}),
+    );
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 300, "width": 1440, "height": 400, "name": "Landing"})));
+    ex(&mut s, "layout.add", json!({"ids": [p], "direction": "vertical"}));
+    for text in ["Agendar diagnóstico", "Ver exemplos"] {
+        let i = idv(&ex(&mut s, "instance.create", json!({"component": comp, "x": 0, "y": 0, "parent": p})));
+        ex(&mut s, "instance.setProperties", json!({"id": i, "properties": {"Label": text}}));
+    }
+    let out = code(&mut s, p, json!({}));
+    assert_eq!(out.matches("import { Button } from \"@/components/ui/button\";").count(), 1, "{out}");
+    assert!(out.contains("<Button size=\"lg\">") && out.contains("Agendar diagnóstico") && out.contains("Ver exemplos"), "{out}");
+    assert!(!out.contains(">Botão<"), "the component's own layers aren't inlined: {out}");
+    // Unconnected instances are still inlined.
+    ex(&mut s, "codeConnect.remove", json!({"id": comp, "language": "react"}));
+    let out = code(&mut s, p, json!({}));
+    assert!(!out.contains("import ") && out.contains(">Agendar diagnóstico<"), "{out}");
+}

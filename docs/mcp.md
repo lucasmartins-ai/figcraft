@@ -1268,7 +1268,10 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   becomes `flex`/`flex-col`/`gap-*`/`p-*` on the 4px spacing scale, fixed-width auto layout frames
   and text become fluid (`w-full max-w-[960px]`; as wide as the frame: `w-full`) and a frame's
   fixed height a minimum, per-side strokes become `border-b` and the like, and instances are
-  inlined with their overrides (component code is `language: react`). Bound variables become theme
+  inlined with their overrides (component code is `language: react`), except instances whose component
+  is connected to code (`codeConnect.set`/`codeConnect.import`, React): those are their snippet, e.g.
+  `<Button variant="outline">{"Ver exemplos"}</Button>`, with each import once at the top. A design
+  system mapped to shadcn/ui this way exports pages that use the project's own components. Bound variables become theme
   utilities (`bg-accent`, `rounded-card`, `text-muted`) that `variable.export {format: "tailwind"}`
   declares: `@import "tailwindcss";` and an `@theme` block named by namespace (`--color-*`,
   `--radius-*`, `--text-*`, `--spacing-*`, `--font-*`; a number's namespace and unit come from what

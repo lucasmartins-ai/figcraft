@@ -399,13 +399,27 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
         };
         markup = markup.replace(&format!("className=\"{class}\""), &format!("className=\"{}\"", list.join(" ")));
     }
+    // Imports of the instances written as their connected code component, once each.
+    let mut imports: Vec<String> = Vec::new();
+    for i in doc.subtree(id).into_iter().take(20_000) {
+        if i != id
+            && doc.node(i).is_some_and(|k| matches!(k.kind, NodeKind::Instance { .. }))
+            && let Some(l) = crate::code_connect::link(doc, i, CodeLang::React)
+        {
+            let line = crate::code_connect::import_line(l, CodeLang::React);
+            if !line.is_empty() && !imports.contains(&line) {
+                imports.push(line);
+            }
+        }
+    }
+    let imports = if imports.is_empty() { String::new() } else { format!("{}\n\n", imports.join("\n")) };
     let name = component_type_name(&n.name);
     let mut mode = if small.is_some() { format!(", mobile first; desktop from {BREAKPOINT}") } else { String::new() };
     if !only_mobile.is_empty() {
         mode.push_str(&format!(". Only in the mobile frame, add by hand with {BREAKPOINT}:hidden: {}", only_mobile.join(", ")));
     }
     let header = comment_safe(&format!("{} as React + Tailwind CSS v4{mode}. Theme: variable.export {{format: \"tailwind\"}}.", n.name));
-    format!("// {header}\nexport function {name}() {{\n  return (\n{markup}  );\n}}\n")
+    format!("// {header}\n{imports}export function {name}() {{\n  return (\n{markup}  );\n}}\n")
 }
 
 /// `text` for one `//` comment line: every JS line terminator (control characters, U+2028,
