@@ -744,7 +744,21 @@ impl<'c, 'a> Markup<'c, 'a> {
                 decls.push_str(&format!("transform: rotate({}deg);\ntransform-origin: 0 0;\n", num(-rot)));
             }
         }
-        // Nested instances are calls (component code), in a wrapper that places them when needed.
+        let mut sem = crate::semantics::of(doc, n);
+        // No link or button inside another: HTML forbids nested interactive content.
+        if self.interactive && matches!(sem.tag, Some("a" | "button")) {
+            sem.tag = None;
+            sem.href = None;
+        }
+        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
+        // A frame a link goes to carries the anchor the link names.
+        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
+            crate::semantics::anchor_for(doc, n.id).map(|a| format!(" id=\"{}\"", a.replace('"', ""))).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        // Nested instances are calls (component code), in a wrapper that places them when needed
+        // and carries what the instance is on the page (a link around a component, its anchor).
         if self.code() && !root && matches!(n.kind, NodeKind::Instance { .. }) {
             let at = depth + usize::from(!decls.is_empty());
             let run = if self.lang == CodeLang::Leptos { ".run()" } else { "" };
@@ -753,11 +767,16 @@ impl<'c, 'a> Markup<'c, 'a> {
                 None => self.ctx.call(n, self.lang, at),
             };
             if let Some(inner) = inner {
-                if decls.is_empty() {
+                let host = sem != crate::semantics::Semantics::default() || !id_attr.is_empty();
+                if decls.is_empty() && !host {
                     self.markup.push_str(&inner);
                 } else {
-                    self.markup.push_str(&format!("{pad}<div {attr}=\"{class}\">\n{inner}{pad}</div>\n"));
-                    self.rule(path, &class, decls);
+                    let tag = sem.element(false);
+                    let attrs = format!("{id_attr}{}", self.sem_attrs(&sem));
+                    self.markup.push_str(&format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>\n{inner}{pad}</{tag}>\n"));
+                    let mut d = String::from(reset_for(sem.tag, false));
+                    d.push_str(&decls);
+                    self.rule(path, &class, d);
                 }
                 return;
             }
@@ -768,37 +787,19 @@ impl<'c, 'a> Markup<'c, 'a> {
         if n.layout.is_none() && !n.children.is_empty() && !root && in_flow {
             own.push_str("position: relative;\n");
         }
-        let mut sem = crate::semantics::of(doc, n);
-        // No link or button inside another: HTML forbids nested interactive content.
-        if self.interactive && matches!(sem.tag, Some("a" | "button")) {
-            sem.tag = None;
-            sem.href = None;
-        }
-        // Browser defaults the design doesn't have, before the layer's own declarations so they
-        // win: boxes measure like the canvas, text has no margins, links and buttons look like
-        // their layer.
-        let reset = match (sem.tag, &n.kind) {
-            (Some("a"), _) => "color: inherit;\ntext-decoration: none;\n",
-            (Some("button"), _) => {
-                "border: none;\nbackground: none;\npadding: 0;\nfont: inherit;\ncolor: inherit;\ntext-align: inherit;\ncursor: pointer;\n"
-            }
-            (Some("ul" | "ol"), _) => "margin: 0;\npadding: 0;\nlist-style: none;\n",
-            (Some("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "label"), _) | (_, NodeKind::Text(_)) => "margin: 0;\n",
-            _ => "",
-        };
+        let text = matches!(n.kind, NodeKind::Text(_));
+        // A frame drawn as an element that is inline by default (a link, a span inside a button)
+        // keeps its box: inline boxes ignore width and height. A flex layout overrides it.
+        let inline = !text && (matches!(sem.tag, Some("a" | "span" | "label")) || (self.phrasing && sem.tag.is_none()));
         // After the placement, before the layer's own look. Widths include padding and strokes,
         // as on the canvas.
         decls.push_str("box-sizing: border-box;\n");
-        decls.push_str(reset);
+        if inline {
+            decls.push_str("display: block;\n");
+        }
+        decls.push_str(reset_for(sem.tag, text));
         decls.push_str(&own);
         self.rule(path, &class, decls);
-        let targets = self.targets.get_or_insert_with(|| crate::semantics::link_targets(doc));
-        // A frame a link goes to carries the anchor the link names.
-        let id_attr = if targets.binary_search_by_key(&n.id.0, |t| t.0).is_ok() {
-            format!(" id=\"{}\"", crate::semantics::anchor(&n.name).replace('"', ""))
-        } else {
-            String::new()
-        };
         let attrs = format!("{}{id_attr}{}", if root { self.root_attrs.clone() } else { String::new() }, self.sem_attrs(&sem));
         let open = |tag: &str| format!("{pad}<{tag} {attr}=\"{class}\"{attrs}>");
         match &n.kind {
@@ -882,14 +883,34 @@ impl<'c, 'a> Markup<'c, 'a> {
         if sem.tag == Some("button") && sem.href.is_none() {
             out.push_str(" type=\"button\"");
         }
-        if sem.decorative {
+        // Links and buttons keep their native role and stay in the accessibility tree: an image
+        // fill only names them, and `decorative` doesn't hide a focusable control.
+        let control = matches!(sem.tag, Some("a" | "button"));
+        if sem.decorative && !control {
             out.push_str(" aria-hidden=\"true\"");
-        } else if let Some(alt) = &sem.alt {
-            out.push_str(&format!(" role=\"img\" aria-label={}", quote(alt)));
+        } else if let Some(alt) = sem.alt.as_ref().filter(|_| !sem.decorative) {
+            if control {
+                out.push_str(&format!(" aria-label={}", quote(alt)));
+            } else {
+                out.push_str(&format!(" role=\"img\" aria-label={}", quote(alt)));
+            }
         } else if let Some(label) = &sem.label {
             out.push_str(&format!(" aria-label={}", quote(label)));
         }
         out
+    }
+}
+
+/// Browser defaults the design doesn't have, put before a layer's own declarations so they win:
+/// text has no margins, links and buttons look like their layer, lists have no bullets.
+fn reset_for(tag: Option<&str>, text: bool) -> &'static str {
+    match tag {
+        Some("a") => "color: inherit;\ntext-decoration: none;\n",
+        Some("button") => "border: none;\nbackground: none;\npadding: 0;\nfont: inherit;\ncolor: inherit;\ntext-align: inherit;\ncursor: pointer;\n",
+        Some("ul" | "ol") => "margin: 0;\npadding: 0;\nlist-style: none;\n",
+        Some("h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "label" | "p") => "margin: 0;\n",
+        _ if text => "margin: 0;\n",
+        _ => "",
     }
 }
 
