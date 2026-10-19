@@ -8,7 +8,6 @@ use egui::{Color32, CornerRadius, Id, Pos2, Rect, Shape, Stroke, StrokeKind, pos
 use figcraft_doc::{Document, NodeId};
 use serde_json::{Value, json};
 
-use crate::theme::ACCENT;
 use crate::{FigApp, RightTab};
 
 const HANDLE_R: f32 = 7.0;
@@ -140,7 +139,7 @@ fn arrow(painter: &egui::Painter, pts: &[Pos2; 4], col: Color32) {
 }
 
 fn plus_handle(painter: &egui::Painter, c: Pos2, hot: bool) {
-    painter.circle_filled(c, HANDLE_R + if hot { 1.0 } else { 0.0 }, ACCENT);
+    painter.circle_filled(c, HANDLE_R + if hot { 1.0 } else { 0.0 }, crate::theme::canvas_accent(painter.ctx()));
     painter.circle_stroke(c, HANDLE_R + if hot { 1.0 } else { 0.0 }, Stroke::new(1.5, Color32::WHITE));
     painter.line_segment([c - vec2(3.5, 0.0), c + vec2(3.5, 0.0)], Stroke::new(1.5, Color32::WHITE));
     painter.line_segment([c - vec2(0.0, 3.5), c + vec2(0.0, 3.5)], Stroke::new(1.5, Color32::WHITE));
@@ -161,7 +160,11 @@ pub fn draw(app: &FigApp, painter: &egui::Painter) {
         let selected = sel.contains(&nd.source);
         let is_open = open == Some((nd.source, nd.index));
         let near = dragging.is_none() && hover.is_some_and(|q| bezier_distance(&nd.pts, q) < 5.0);
-        let col = if selected || is_open || near { ACCENT } else { ACCENT.gamma_multiply(0.55) };
+        let col = if selected || is_open || near {
+            crate::theme::canvas_accent(painter.ctx())
+        } else {
+            crate::theme::canvas_accent(painter.ctx()).gamma_multiply(0.55)
+        };
         let w = if is_open || near {
             2.5
         } else if selected {
@@ -177,7 +180,12 @@ pub fn draw(app: &FigApp, painter: &egui::Painter) {
                 .and_then(|it| figcraft_doc::proto::walk(&it.actions).find_map(|a| a.dest()))
             && let Some(r) = screen_rect(app, doc, dest)
         {
-            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, ACCENT.gamma_multiply(0.7)), StrokeKind::Outside);
+            painter.rect_stroke(
+                r,
+                CornerRadius::ZERO,
+                Stroke::new(1.0, crate::theme::canvas_accent(painter.ctx()).gamma_multiply(0.7)),
+                StrokeKind::Outside,
+            );
         }
         painter.add(egui::epaint::CubicBezierShape::from_points_stroke(nd.pts, false, Color32::TRANSPARENT, Stroke::new(w, col)));
         painter.circle_filled(nd.pts[0], 3.5, col);
@@ -190,12 +198,17 @@ pub fn draw(app: &FigApp, painter: &egui::Painter) {
                 && doc.top_level_frame(d.source) != Some(f)
                 && let Some(r) = screen_rect(app, doc, f)
             {
-                painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, ACCENT), StrokeKind::Outside);
+                painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, crate::theme::canvas_accent(painter.ctx())), StrokeKind::Outside);
             }
             let dx = ((d.pos.x - d.from.x).abs() * 0.5).max(30.0) * if d.pos.x >= d.from.x { 1.0 } else { -1.0 };
             let pts = [d.from, d.from + vec2(dx, 0.0), d.pos - vec2(dx, 0.0), d.pos];
-            painter.add(egui::epaint::CubicBezierShape::from_points_stroke(pts, false, Color32::TRANSPARENT, Stroke::new(2.0, ACCENT)));
-            arrow(painter, &pts, ACCENT);
+            painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+                pts,
+                false,
+                Color32::TRANSPARENT,
+                Stroke::new(2.0, crate::theme::canvas_accent(painter.ctx())),
+            ));
+            arrow(painter, &pts, crate::theme::canvas_accent(painter.ctx()));
             plus_handle(painter, d.from, true);
         }
         None => {

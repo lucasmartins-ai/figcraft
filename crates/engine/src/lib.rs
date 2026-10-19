@@ -1099,8 +1099,11 @@ impl Session {
         let Some(it) = ds.interaction.clone() else { return Err(EngineError::Other("no gesture in progress".into())) };
         let mut doc = (*it.doc).clone();
         let mut sel = it.selection.clone();
+        // What the gesture changes on the selected layers is an explicit edit.
+        let before = cmd::styles::bound_before(&doc, &it.selection);
         let res = f(&mut doc, &mut sel);
         if res.is_ok() {
+            cmd::styles::detach_edited(&mut doc, &before);
             normalize(&mut doc, &it.doc);
             // The same preview again (a handle held still) keeps the document: a new one would
             // re-render the canvas for nothing.

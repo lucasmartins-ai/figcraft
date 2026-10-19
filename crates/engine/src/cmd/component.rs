@@ -608,7 +608,7 @@ fn make_slot(s: &mut Session, p: &Value) -> Result<Value> {
     let owner = Owner::resolve(doc, id).ok_or_else(|| bad(cmd, "the frame isn't inside a component"))?;
     let name = string(p, "name").unwrap_or_else(|| fresh_prop_name(doc, &owner, &n.name));
     let preferred = get(p, "preferred").cloned().unwrap_or(Value::Null);
-    add_prop(s, &json!({"id": id, "layer": id, "name": name, "type": "slot", "preferred": preferred}))
+    add_prop_for(cmd, s, &json!({"id": id, "layer": id, "name": name, "type": "slot", "preferred": preferred}))
 }
 
 fn remove_slot(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1039,7 +1039,12 @@ fn valid_prop_name(cmd: &str, name: &str) -> Result<String> {
 }
 
 fn add_prop(s: &mut Session, p: &Value) -> Result<Value> {
-    let cmd = "component.addProperty";
+    add_prop_for("component.addProperty", s, p)
+}
+
+/// Add a component property for command `cmd`, which errors name (`component.makeSlot` adds its
+/// slot property here).
+fn add_prop_for(cmd: &str, s: &mut Session, p: &Value) -> Result<Value> {
     let target = targets(s, p).first().copied().ok_or_else(|| bad(cmd, "select a component"))?;
     let name = valid_prop_name(cmd, &req_string(cmd, p, "name")?)?;
     let t = req_string(cmd, p, "type")?;

@@ -528,6 +528,7 @@ pub(crate) fn resize_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let (col, row) = string(p, "anchor").and_then(|a| crate::tools::anchor_of(&a)).unwrap_or((0, 0));
     let (ax, ay) = (f64::from(col) / 2.0, f64::from(row) / 2.0);
     let doc = s.doc_mut()?;
+    let before = super::styles::bound_before(doc, &ids);
     for i in ids {
         let n = doc.get(i)?;
         let (ow, oh) = (n.width, n.height);
@@ -551,6 +552,7 @@ pub(crate) fn resize_cmd(s: &mut Session, p: &Value) -> Result<Value> {
         }
         super::props::restore_worlds(doc, &kept)?;
     }
+    super::styles::detach_edited(doc, &before);
     ok()
 }
 
