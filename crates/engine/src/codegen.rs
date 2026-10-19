@@ -269,7 +269,7 @@ fn stroke_color(n: &Node) -> Option<Color> {
     if !n.has_visible_stroke() {
         return None;
     }
-    n.strokes.iter().filter(|p| p.visible).find_map(|p| p.solid_color().map(|c| c.with_alpha(c.a * p.opacity)))
+    n.strokes.iter().filter(|p| p.visible).find_map(|p| p.solid_color())
 }
 
 fn drop_shadow(n: &Node) -> Option<&Shadow> {
@@ -684,6 +684,8 @@ pub(crate) struct Markup<'c, 'a> {
     phrasing: bool,
     /// Page code's guessed `h1` (computed on first use).
     h1: Option<Option<NodeId>>,
+    /// Inside a link or button (another one inside would be invalid HTML).
+    interactive: bool,
     /// The layers links go to (computed on first use).
     targets: Option<Vec<NodeId>>,
 }
@@ -705,6 +707,7 @@ impl<'c, 'a> Markup<'c, 'a> {
             fluid_leaves: f64::INFINITY,
             phrasing: false,
             h1: None,
+            interactive: false,
             targets: None,
         }
     }
@@ -824,6 +827,11 @@ impl<'c, 'a> Markup<'c, 'a> {
             let h1 = *self.h1.get_or_insert_with(|| crate::semantics::page_h1(doc, self.ctx.root));
             crate::semantics::infer(n, h1 == Some(n.id), &mut sem);
         }
+        // No link or button inside another: HTML forbids nested interactive content.
+        if self.interactive && matches!(sem.tag, Some("a" | "button")) {
+            sem.tag = None;
+            sem.href = None;
+        }
         // Browser defaults the design doesn't have, before the layer's own declarations so they
         // win: boxes measure like the canvas, text has no margins, links and buttons look like
         // their layer.
@@ -897,8 +905,9 @@ impl<'c, 'a> Markup<'c, 'a> {
                         None => depth + 1,
                     };
                     let mut seen: Vec<&str> = Vec::new();
-                    let outer = self.phrasing;
+                    let (outer, outer_interactive) = (self.phrasing, self.interactive);
                     self.phrasing = outer || sem.phrasing();
+                    self.interactive = outer_interactive || matches!(sem.tag, Some("a" | "button"));
                     // Bottom layer first: later elements paint on top, like the layer order.
                     for k in kids {
                         let Some(kn) = doc.node(k) else { continue };
@@ -907,6 +916,7 @@ impl<'c, 'a> Markup<'c, 'a> {
                         self.node(k, Some(n), inner, &format!("{path}/{}#{count}", kn.name));
                     }
                     self.phrasing = outer;
+                    self.interactive = outer_interactive;
                     match slot {
                         Some(_) if leptos => self.markup.push_str(&format!("{p1}}}.into_any() }}}}\n")),
                         Some(_) => self.markup.push_str(&format!("{p2}</>\n{p1})}}\n")),

@@ -27,8 +27,10 @@ pub mod dev_resources;
 pub mod devcompare;
 pub mod devinspect;
 pub mod distance;
+pub mod doc_urls;
 pub mod drop;
 pub mod file_access;
+pub mod fonts;
 pub mod guard;
 pub mod guides;
 pub mod inspect;
@@ -378,6 +380,8 @@ pub struct DocState {
     pub guide: Option<(NodeId, usize)>,
     /// The selection's rotation origin, when moved or shown (see [`rotation_origin`]; not saved).
     pub(crate) rotation_origin: Option<rotation_origin::RotationOrigin>,
+    /// The View toggles the preferences keep were applied ([`Session::apply_view_prefs`]).
+    view_from_prefs: bool,
     /// The last duplicate while its copies are the selection: Duplicate repeats its offset (see
     /// [`cmd::edit::Duplicated`]; not saved).
     pub(crate) last_duplicate: Option<cmd::edit::Duplicated>,
@@ -439,6 +443,7 @@ impl DocState {
             focus: None,
             guide: None,
             rotation_origin: None,
+            view_from_prefs: false,
             last_duplicate: None,
         };
         st.zoom_to_fit();
@@ -667,6 +672,10 @@ pub struct Prefs {
     pub home_sort: String,
     /// Which way: `"desc"` (newest first, Z to A) or `"asc"`.
     pub home_order: String,
+    /// The View menu's toggles turned on or off (rulers, pixel grid, snapping…), by command id:
+    /// files opened or made later start with them. Missing: the toggle's default.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub view: BTreeMap<String, bool>,
     /// Recently run actions (the Actions palette's Recents), newest first, at most
     /// [`MAX_RECENT_ACTIONS`]. Entries are `command:<id>`, `plugin:<plugin>/<command>` or
     /// `widget:<plugin>`.
@@ -705,6 +714,7 @@ impl Default for Prefs {
             home_views: BTreeMap::new(),
             home_sort: "modified".into(),
             home_order: "desc".into(),
+            view: BTreeMap::new(),
             recent_actions: Vec::new(),
         }
     }
@@ -857,6 +867,14 @@ impl Session {
         s
     }
 
+    /// Files new to the session start with the View toggles the preferences keep.
+    pub fn apply_view_prefs(&mut self) {
+        for ds in self.docs.iter_mut().filter(|d| !d.view_from_prefs) {
+            cmd::view::apply_kept(&self.prefs, &mut ds.view);
+            ds.view_from_prefs = true;
+        }
+    }
+
     pub fn ds(&self) -> Result<&DocState> {
         self.docs.get(self.active).ok_or(EngineError::NoDocument)
     }
@@ -898,6 +916,7 @@ impl Session {
             return Err(EngineError::Disabled(id.into(), "leave the live session before reverting to the saved file".into()));
         }
         branches::sync(self);
+        self.apply_view_prefs();
         if textpreview::COMMANDS.contains(&id) {
             // A live preview is no edit: no undo step, normalisation or rollback here.
             let r = guard::run(id, || (spec.run)(self, params));
@@ -923,6 +942,7 @@ impl Session {
         match &result {
             Ok(_) => {
                 self.after_command(spec, before);
+                self.apply_view_prefs();
                 if spec.history && id != "edit.repeat" {
                     self.last_command = Some((id.to_string(), params.clone()));
                 }
@@ -1538,6 +1558,8 @@ mod binding_lists_tests;
 #[cfg(test)]
 mod booleans_tests;
 #[cfg(test)]
+mod bound_alpha_tests;
+#[cfg(test)]
 mod branch_tests;
 #[cfg(test)]
 mod branch_versions_tests;
@@ -1581,6 +1603,8 @@ mod devcompare_tests;
 mod devfocus_tests;
 #[cfg(test)]
 mod devinspect_tests;
+#[cfg(test)]
+mod doc_urls_tests;
 #[cfg(test)]
 mod double_click_tests;
 #[cfg(test)]
@@ -1641,6 +1665,8 @@ mod interaction_rollback_tests;
 mod invite_links_tests;
 #[cfg(test)]
 mod keymap_tests;
+#[cfg(test)]
+mod library_path_tests;
 #[cfg(test)]
 mod library_range_styles_tests;
 #[cfg(test)]
@@ -1726,6 +1752,8 @@ mod proto_run_tests;
 #[cfg(test)]
 mod proto_tail_tests;
 #[cfg(test)]
+mod rest_slot_tests;
+#[cfg(test)]
 mod retained_walk_tests;
 #[cfg(test)]
 mod rotated_guides_tests;
@@ -1803,6 +1831,8 @@ mod variable_tests;
 mod variables_behaviour_tests;
 #[cfg(test)]
 mod variables_editor_tests;
+#[cfg(test)]
+mod variables_import_shapes_tests;
 #[cfg(test)]
 mod variables_io_tests;
 #[cfg(test)]

@@ -114,6 +114,9 @@ pub fn record_recent(app: &mut FigApp, key: &str) {
 
 pub fn invoke(app: &mut FigApp, id: &str) {
     match id {
+        // Edit ▸ Delete (and the Delete binding) with an interaction open in the Prototype tab
+        // removes that interaction, not the layer (#767).
+        "edit.delete" if app.ui_context.clone().is_some_and(|ctx| crate::proto_panel::delete_selected_interaction(app, &ctx)) => {}
         "file.open" => app.open_dialog(),
         "plugin.import" => crate::plugins_ui::import_dialog(app),
         "file.import" => app.import_dialog(false),

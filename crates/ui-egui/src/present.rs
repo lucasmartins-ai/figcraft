@@ -865,7 +865,9 @@ impl Presenter {
             }
             Action::CloseOverlay => self.close_overlay(now),
             Action::OpenUrl { url } => {
-                if !url.trim().is_empty() {
+                // The URL comes from the document and this action fires from whatever trigger the
+                // prototype sets, including a delay, so no click is implied: only a web link opens.
+                if figcraft_engine::doc_urls::openable(url) {
                     self.urls.push(url.clone());
                 }
                 true
@@ -1786,8 +1788,7 @@ fn navigation_bar(p: &mut Presenter, ctx: &egui::Context, now: f64) -> Option<St
                     let scale_menu = ui.menu_button(format!("{}    ", tr(p.view.scale.label(settings.device().is_some()))), |ui| {
                         navigation_menu(ui, |ui| {
                             for scale in PresentScale::options(settings.device().is_some()) {
-                                let label = egui::RichText::new(tr(scale.label(settings.device().is_some()))).color(t.menu_text);
-                                if ui.selectable_label(p.view.scale == *scale, label).clicked() {
+                                if ui.selectable_label(p.view.scale == *scale, tr(scale.label(settings.device().is_some()))).clicked() {
                                     p.set_scale(*scale);
                                     ui.close();
                                 }
@@ -1810,15 +1811,8 @@ fn paint_menu_chevron(painter: &egui::Painter, button: Rect, color: Color32) {
 }
 
 fn navigation_menu(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    let t = Tokens::get(ui.ctx());
-    ui.visuals_mut().override_text_color = Some(t.menu_text);
-    egui::Frame::NONE.fill(t.menu).stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(7)).inner_margin(egui::Margin::same(6)).show(
-        ui,
-        |ui| {
-            ui.set_min_width(212.0);
-            add(ui);
-        },
-    );
+    ui.set_min_width(212.0);
+    add(ui);
 }
 
 /// How often the player polls the controllers while its prototype has gamepad triggers (seconds).

@@ -212,6 +212,11 @@ pub fn swallowed_paste(app: &mut FigApp, ctx: &Context) -> Swallowed {
 pub fn run_binding(app: &mut FigApp, id: &str) {
     match id {
         "select.none" => {
+            if let Some(ctx) = &app.ui_context
+                && crate::proto_panel::close_editor(ctx)
+            {
+                return;
+            }
             if let Err(e) = app.session.escape() {
                 app.toast(e.to_string());
             }
@@ -230,6 +235,9 @@ pub fn run_binding(app: &mut FigApp, id: &str) {
 }
 
 fn key_event(app: &mut FigApp, key: Key, physical: Option<Key>, m: Modifiers, repeat: bool, now: f64, ctx: &Context) -> bool {
+    if key == Key::Escape && crate::proto_panel::close_editor(ctx) {
+        return true;
+    }
     if key == Key::Escape && crate::selection_spacing::cancel(app, ctx) {
         return true;
     }
@@ -238,6 +246,10 @@ fn key_event(app: &mut FigApp, key: Key, physical: Option<Key>, m: Modifiers, re
     }
     // A gradient open in the colour picker: Delete removes its selected stop.
     if matches!(key, Key::Backspace | Key::Delete) && m.is_none() && app.ui.picker.is_some() && crate::handles::remove_selected_stop(app, ctx) {
+        return true;
+    }
+    // An interaction selected in the Prototype tab: Delete removes that interaction, not the component.
+    if matches!(key, Key::Backspace | Key::Delete) && m.is_none() && crate::proto_panel::delete_selected_interaction(app, ctx) {
         return true;
     }
     // Vector edit mode and the shape builder have their own keys (tools, nudging points, delete,

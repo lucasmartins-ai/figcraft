@@ -2048,7 +2048,7 @@ impl<'a> Mapper<'a> {
                 self.warn("slot content assignment uses the empty GUID sentinel and was skipped");
                 continue;
             }
-            if !self.nodes.get(&target).is_some_and(|n| n.get("isSlotContent").and_then(Kv::bool) == Some(true)) {
+            if self.nodes.get(&target).is_none_or(|n| n.get("isSlotContent").and_then(Kv::bool) != Some(true)) {
                 self.warn("slot content assignment target is missing or is not slot content");
                 continue;
             }

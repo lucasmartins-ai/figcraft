@@ -119,3 +119,50 @@ fn stylesheets_reset_browser_defaults_the_design_doesnt_have() {
     let button = html.split(".buy {\n").nth(1).and_then(|r| r.split('}').next()).unwrap_or_default();
     assert!(button.contains("border: none;") && button.contains("background: none;") && button.contains("font: inherit;"), "{html}");
 }
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+#[test]
+fn review_a_photo_background_keeps_its_children_readable() {
+    let mut s = Session::new();
+    let (p, title, buy, _) = page(&mut s);
+    // The page frame gets a photo fill: it has children, so it is not role="img".
+    let photo = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0})));
+    let fills = s.doc().unwrap().node(photo).unwrap().fills.clone();
+    s.doc_mut().unwrap().get_mut(p).unwrap().fills = fills;
+    ex(&mut s, "annotation.add", json!({"id": p, "label": "alt: Hero photo", "category": "accessibility"}));
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "h1", "category": "accessibility"}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "openUrl", "url": "/agendar"}}));
+    let html = code(&mut s, p, "html");
+    assert!(!html.contains("role=\"img\""), "{html}");
+    assert!(html.contains("<h1 ") && html.contains("href=\"/agendar\""), "{html}");
+}
+
+#[test]
+fn review_no_link_or_button_inside_another() {
+    let mut s = Session::new();
+    let (p, _, buy, pricing) = page(&mut s);
+    // A clickable card (pricing) containing a clickable button.
+    ex(&mut s, "node.reparent", json!({"ids": [buy], "parent": pricing}));
+    ex(&mut s, "proto.interaction.add", json!({"id": pricing, "action": {"type": "openUrl", "url": "/planos"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
+    let html = code(&mut s, p, "html");
+    assert_eq!(html.matches("<a ").count() + html.matches("<button ").count(), 1, "{html}");
+    assert!(html.contains("<a class=\"pricing-section\" href=\"/planos\">") && !html.contains("<button"), "{html}");
+}
+
+#[test]
+fn review_default_names_empty_alt_and_p() {
+    let mut s = Session::new();
+    let (p, title, _, pricing) = page(&mut s);
+    let img = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0, "parent": pricing})));
+    ex(&mut s, "node.set", json!({"id": img, "props": {"name": "Rectangle 12"}}));
+    let html = code(&mut s, p, "html");
+    assert!(!html.contains("Rectangle 12") && !html.contains("role=\"img\""), "a default name isn't alt text: {html}");
+    ex(&mut s, "annotation.add", json!({"id": img, "label": "alt:", "category": "accessibility"}));
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("aria-hidden=\"true\"") && !html.contains("aria-label=\"\""), "empty alt is decorative: {html}");
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "h2", "category": "accessibility"}));
+    ex(&mut s, "annotation.add", json!({"id": title, "label": "p", "category": "accessibility"}));
+    assert!(code(&mut s, p, "html").contains("<p class=\"title\">"), "the last instruction wins and p is accepted");
+}

@@ -1736,7 +1736,7 @@ impl<'d> Exporter<'d> {
         let sp = &n.stroke;
         let (w, h, weight) = (n.width, n.height, sp.weight);
         let plain = n.strokes.iter().any(|p| p.visible) && sp.dashes.is_empty() && sp.sides.is_none() && sp.profile().is_none() && sp.brush.is_none();
-        if !plain || !(weight.is_finite() && weight > 0.0 && w.is_finite() && h.is_finite()) {
+        if !(plain && weight.is_finite() && weight > 0.0 && w.is_finite() && h.is_finite()) {
             return;
         }
         let whole = matches!(n.kind, NodeKind::Ellipse { sweep, inner, .. } if inner == 0.0 && sweep.abs() >= std::f64::consts::TAU - 1e-9);
@@ -2217,12 +2217,13 @@ fn outlined(n: &Node) -> Option<(Node, String)> {
         NodeKind::Line | NodeKind::Vector { .. } | NodeKind::Ellipse { .. } | NodeKind::Polygon { .. } | NodeKind::Star { .. } | NodeKind::Rectangle
     );
     let shown = |paints: &[Paint]| paints.iter().any(|p| p.visible);
-    if !shape
-        || sp.brush.is_some()
-        || !sp.profile().is_some_and(one_sided)
-        || !(sp.weight.is_finite() && sp.weight > 0.0)
-        || !shown(&n.strokes)
-        || shown(&n.fills)
+    if !(shape
+        && sp.brush.is_none()
+        && sp.profile().is_some_and(one_sided)
+        && sp.weight.is_finite()
+        && sp.weight > 0.0
+        && shown(&n.strokes)
+        && !shown(&n.fills))
     {
         return None;
     }
