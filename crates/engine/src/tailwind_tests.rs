@@ -67,8 +67,8 @@ fn per_side_strokes_are_borders_on_those_sides() {
     assert!(css.contains("border-bottom: 1px solid") && !css.contains("border:"), "{css}");
     let tw = code(&mut s, f, json!({}));
     assert!(tw.contains("border-b ") && tw.contains("border-[#262a31]") || tw.contains("border-[#262A31]"), "{tw}");
-    // Uniform sides stay one border.
-    ex(&mut s, "node.set", json!({"id": f, "props": {"strokeSides": [2, 2, 2, 2]}}));
+    // Without per-side weights it is one border.
+    ex(&mut s, "node.set", json!({"id": f, "props": {"strokeSides": null, "strokeWeight": 2}}));
     let css = ex(&mut s, "inspect.code", json!({"id": f, "language": "css"}))["code"].as_str().unwrap_or_default().to_string();
     assert!(css.contains("border: 2px solid"), "{css}");
 }

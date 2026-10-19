@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use egui::{Align2, Color32, Context, CornerRadius, RichText, Sense, Stroke, vec2};
+use egui::{Align2, Context, CornerRadius, RichText, Sense, Stroke, vec2};
 use figcraft_color::ColorProfile;
 use figcraft_doc::{ExportFormat, ExportSetting, ExportSize, NodeId};
 use figcraft_engine::cmd::file::{export_jobs, exportable_layers};
@@ -12,8 +12,7 @@ use serde_json::{Value, json};
 use crate::FigApp;
 use crate::export_panel::{export_layers, save_one, suggested_name};
 use crate::i18n::{self, tr, tr_noop, trf, trn};
-use crate::icons::{self, Icon};
-use crate::theme::{ACCENT, Tokens, regular, semibold};
+use crate::theme::{Tokens, regular, semibold};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -122,10 +121,10 @@ pub(crate) fn tab_strip<T: Copy + PartialEq>(ui: &mut egui::Ui, t: &Tokens, tabs
 fn about_body(ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(48.0, 48.0), Sense::hover());
-        ui.painter().rect_filled(r, CornerRadius::same(10), ACCENT);
-        icons::paint(ui.painter(), r.shrink(10.0), Icon::Logo, Color32::WHITE);
+        crate::theme::paint_app_icon(ui, r);
         ui.vertical(|ui| {
-            ui.label(RichText::new("FigCraft").font(semibold(18.0)));
+            let (wordmark, _) = ui.allocate_exact_size(vec2(130.0, 23.0), Sense::hover());
+            crate::theme::paint_wordmark(ui.painter(), egui::pos2(wordmark.min.x, wordmark.center().y), 18.0, t);
             ui.label(RichText::new(trf("Version {version}", &[("version", &VERSION)])).color(t.text_secondary));
         });
     });

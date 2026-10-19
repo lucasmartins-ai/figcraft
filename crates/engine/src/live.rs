@@ -81,7 +81,7 @@ pub const PEOPLE: [&str; 8] = ["#0D99FF", "#9747FF", "#14AE5C", "#F24822", "#D97
 
 /// `#RRGGBB` → (r, g, b); `None` for anything else.
 pub fn parse_color(s: &str) -> Option<(u8, u8, u8)> {
-    let hex = s.strip_prefix('#').filter(|h| h.len() == 6 && h.is_ascii())?;
+    let hex = s.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))?;
     let byte = |i: usize| hex.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok());
     Some((byte(0)?, byte(2)?, byte(4)?))
 }

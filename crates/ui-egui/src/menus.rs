@@ -112,6 +112,8 @@ pub fn record_recent(app: &mut FigApp, key: &str) {
     r.truncate(figcraft_engine::MAX_RECENT_ACTIONS);
 }
 
+/// Run a menu, shortcut or palette action by id: actions that need the UI (dialogs, panels, the
+/// clipboard) are handled here, the rest go to the engine.
 pub fn invoke(app: &mut FigApp, id: &str) {
     match id {
         // Edit ▸ Delete (and the Delete binding) with an interaction open in the Prototype tab
@@ -206,12 +208,13 @@ pub fn invoke(app: &mut FigApp, id: &str) {
         "collab.publish" => crate::live::open_publish(app),
         "edit.copy" | "edit.cut" => {
             let ids = app.session.selection();
-            // SVG for other apps, taken before a cut removes the layers.
-            let svg = app.session.doc().ok().and_then(|d| figcraft_svg_export(d, &ids));
+            // For other apps: text layers' text, other layers as SVG; taken before a cut removes them.
+            let doc = app.session.doc().ok();
+            let mirror = doc.and_then(|d| text_layers_text(d, &ids).or_else(|| figcraft_svg_export(d, &ids)));
             app.run(id, json!({}));
-            // Mirror to the system clipboard (SVG text, else a marker) and remember it, so a later
-            // paste knows whether the clipboard still holds our layers.
-            let text = svg.unwrap_or_else(|| format!("figcraft://clipboard/{}", ids.len()));
+            // Mirror to the system clipboard (text or SVG, else a marker) and remember it, so a
+            // later paste knows whether the clipboard still holds our layers.
+            let text = mirror.unwrap_or_else(|| format!("figcraft://clipboard/{}", ids.len()));
             app.services.clipboard_set_text(&text);
             app.ui.last_copy = Some(text);
         }
@@ -239,6 +242,14 @@ fn export_frames_pdf(app: &mut FigApp) {
     });
 }
 
+/// The text of a selection made only of text layers, one layer per line (None for any other
+/// selection, or when there is no text).
+fn text_layers_text(doc: &figcraft_doc::Document, ids: &[figcraft_doc::NodeId]) -> Option<String> {
+    let texts: Option<Vec<&str>> = ids.iter().map(|i| doc.node(*i).and_then(|n| n.kind.text()).map(|t| t.characters.as_str())).collect();
+    texts.map(|t| t.join("\n")).filter(|t| !t.is_empty())
+}
+
+/// The layers as SVG text for other apps (None when the export fails).
 fn figcraft_svg_export(doc: &figcraft_doc::Document, ids: &[figcraft_doc::NodeId]) -> Option<String> {
     let bytes = figcraft_engine::cmd::file::export_bytes(doc, ids, figcraft_doc::ExportFormat::Svg, 1.0).ok()?;
     String::from_utf8(bytes).ok()

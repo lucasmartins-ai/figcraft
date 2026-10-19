@@ -332,7 +332,7 @@ fn pages_edge(app: &mut FigApp, ui: &mut Ui, shown: f32) {
     if active {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
     }
-    let (width, colour) = if active { (2.0, t.accent) } else { (1.0, t.border) };
+    let (width, colour) = if active { (2.0, ACCENT) } else { (1.0, t.border) };
     ui.painter().line_segment([line.left_center(), line.right_center()], Stroke::new(width, colour));
     let asked = if resp.double_clicked() {
         Some(None)
@@ -642,7 +642,7 @@ fn search_field(app: &mut FigApp, ui: &mut Ui, t: &Tokens, w: f32, id: Id) {
     );
     crate::widgets::select_all_on_focus(ui, &r, &app.ui.layer_filter);
     if r.has_focus() {
-        ui.painter().rect_stroke(field, CornerRadius::same(5), Stroke::new(1.0, t.accent), egui::StrokeKind::Inside);
+        ui.painter().rect_stroke(field, CornerRadius::same(5), Stroke::new(1.0, ACCENT), egui::StrokeKind::Inside);
     }
     if (r.has_focus() || r.lost_focus()) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.ui.layer_search = false;

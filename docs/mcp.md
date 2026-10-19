@@ -267,7 +267,11 @@ Or in a project's `.mcp.json`:
   `style.duplicate {style}` adds "<name> copy" right below, `style.renameFolder {folder, name}`.
 - **Variables**: `variable.bind` refuses a variable of a type the field doesn't take (a colour on
   `width`); scopes only filter pickers. `variable.delete` / `variable.deleteCollection` unbind the
-  layers using them (they keep their last value) and give aliases to them their values.
+  layers using them (they keep their last value) and give aliases to them their values. An
+  explicit edit that changes a bound field's value (`node.set`, `transform.resize`,
+  `object.opacityKeys`, `text.style`, `text.set`, the text size, weight and
+  tracking shortcuts, a canvas drag) detaches that field's variable; fields the edit
+  left as they were stay bound.
   `variable.addMode {from}` duplicates a mode, `variable.moveMode {collection, mode, to}` reorders
   (index 0 is the default mode, which layers on Auto follow). `variable.update {codeSyntax: {WEB?,
   iOS?, ANDROID?}}` sets code names (`""` clears); generated CSS uses the Web one.

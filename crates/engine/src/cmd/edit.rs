@@ -261,7 +261,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         spec!("effect.set", "Set effect", "{ids?, index, effect {..}}", true, |s, p| {
             let i = req_index("effect.set", p, "index")?;
-            let e: Effect = parse("effect.set", p, "effect")?.ok_or_else(|| bad("effect.set", "`effect` required"))?;
+            let e = super::props::effect_from("effect.set", p, "effect")?.ok_or_else(|| bad("effect.set", "`effect` required"))?;
             for id in req_targets("effect.set", s, p)? {
                 let n = s.doc_mut()?.get_mut(id)?;
                 if let Some(slot) = n.effects.get_mut(i) {
@@ -931,9 +931,13 @@ pub fn opacity_from_digits(digits: &str) -> Option<f32> {
 fn opacity_keys(s: &mut Session, p: &Value) -> Result<Value> {
     let digits = req_string("object.opacityKeys", p, "digits")?;
     let o = opacity_from_digits(&digits).ok_or_else(|| bad("object.opacityKeys", "`digits` must be one or two digits"))?;
-    for i in req_targets("object.opacityKeys", s, p)? {
-        s.doc_mut()?.get_mut(i)?.opacity = o;
+    let ids = req_targets("object.opacityKeys", s, p)?;
+    let doc = s.doc_mut()?;
+    let before = super::styles::bound_before(doc, &ids);
+    for i in ids {
+        doc.get_mut(i)?.opacity = o;
     }
+    super::styles::detach_edited(doc, &before);
     Ok(json!({"opacity": o}))
 }
 
@@ -1181,10 +1185,12 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     let doc = s.doc_mut()?;
+    let before = super::styles::bound_before(doc, &ids);
     for i in ids {
         let props = if skipped.contains(&i) { &without_layout } else { &props };
         super::props::apply("node.set", doc, i, props)?;
     }
+    super::styles::detach_edited(doc, &before);
     if let Some(o) = pivot {
         for (i, q) in pinned {
             let d = o - doc.world_transform(i) * q;
@@ -1342,7 +1348,7 @@ fn paint_set(s: &mut Session, p: &Value, fills: bool) -> Result<Value> {
         if let Some(b) = blend(p, "blend") {
             slot.blend = b;
         }
-        super::lists::remap_stop_bindings(n, fills, at, &old);
+        super::lists::rebind_edited_paint(n, fills, at, &old);
         if fills {
             n.styles.fill = None;
         } else {
@@ -1376,8 +1382,8 @@ fn pattern_fill(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn effect_add(s: &mut Session, p: &Value) -> Result<Value> {
-    let e: Effect = match get(p, "effect") {
-        Some(v) => serde_json::from_value(v.clone()).map_err(|e| bad("effect.add", e.to_string()))?,
+    let e: Effect = match super::props::effect_from("effect.add", p, "effect")? {
+        Some(e) => e,
         None => {
             let ty = string(p, "type").unwrap_or_else(|| "dropShadow".into());
             Effect::of_type(&ty).ok_or_else(|| bad("effect.add", format!("unknown effect type `{ty}`")))?
