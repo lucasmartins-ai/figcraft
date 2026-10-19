@@ -166,3 +166,67 @@ fn review_default_names_empty_alt_and_p() {
     ex(&mut s, "annotation.add", json!({"id": title, "label": "p", "category": "accessibility"}));
     assert!(code(&mut s, p, "html").contains("<p class=\"title\">"), "the last instruction wins and p is accepted");
 }
+
+#[test]
+fn review_controls_keep_their_role_and_stay_visible() {
+    let mut s = Session::new();
+    let (p, _, buy, _) = page(&mut s);
+    // An image-filled, clickable leaf: a link named by its image, not role="img".
+    let img = idv(&ex(&mut s, "image.place", json!({"data": PNG, "x": 0, "y": 0, "parent": p})));
+    ex(&mut s, "node.set", json!({"id": img, "props": {"name": "Company logo"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": img, "action": {"type": "openUrl", "url": "/"}}));
+    // A decorative button is still exposed: aria-hidden on a focusable control is invalid.
+    ex(&mut s, "proto.interaction.add", json!({"id": buy, "action": {"type": "back"}}));
+    ex(&mut s, "annotation.add", json!({"id": buy, "label": "decorative", "category": "accessibility"}));
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("href=\"/\" aria-label=\"Company logo\"") && !html.contains("role=\"img\""), "{html}");
+    assert!(html.contains("<button class=\"buy\" type=\"button\">") && !html.contains("aria-hidden"), "{html}");
+}
+
+#[test]
+fn review_links_keep_their_box_and_paragraph_frames_hold_spans() {
+    let mut s = Session::new();
+    let card = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 300, "height": 200, "name": "Card"})));
+    ex(&mut s, "text.create", json!({"text": "Ver", "x": 0, "y": 0, "parent": card, "props": {"name": "Label"}}));
+    ex(&mut s, "proto.interaction.add", json!({"id": card, "action": {"type": "openUrl", "url": "/card"}}));
+    let html = code(&mut s, card, "html");
+    let rule = html.split(".card {\n").nth(1).and_then(|r| r.split('}').next()).unwrap_or_default().to_string();
+    assert!(rule.contains("display: block;") && rule.contains("width: 300px;"), "a link frame keeps its size: {html}");
+    // A frame annotated `p` holds phrasing content only.
+    ex(&mut s, "proto.interaction.remove", json!({"id": card, "index": 0}));
+    ex(&mut s, "annotation.add", json!({"id": card, "label": "p", "category": "accessibility"}));
+    let html = code(&mut s, card, "html");
+    assert!(html.contains("<p class=\"card\">") && html.contains("<span class=\"label\">Ver</span>"), "{html}");
+}
+
+#[test]
+fn review_same_named_destinations_get_distinct_anchors() {
+    let mut s = Session::new();
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 800, "height": 900, "name": "Page"})));
+    let a = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 800, "height": 100, "parent": p, "name": "Pricing"})));
+    let b = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 200, "width": 800, "height": 100, "parent": p, "name": "Pricing!"})));
+    for (i, dest) in [a, b].iter().enumerate() {
+        let link = idv(&ex(
+            &mut s,
+            "frame.create",
+            json!({"x": 0, "y": 400 + 60 * i, "width": 100, "height": 40, "parent": p, "name": format!("Link {i}")}),
+        ));
+        ex(&mut s, "proto.interaction.add", json!({"id": link, "action": {"type": "scrollTo", "dest": dest}}));
+    }
+    let html = code(&mut s, p, "html");
+    assert!(html.contains("id=\"pricing\"") && html.contains("id=\"pricing-2\""), "{html}");
+    assert!(html.contains("href=\"#pricing\"") && html.contains("href=\"#pricing-2\""), "{html}");
+}
+
+#[test]
+fn review_component_instances_keep_their_link() {
+    let mut s = Session::new();
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 160, "height": 44, "name": "Button"})));
+    ex(&mut s, "text.create", json!({"text": "Go", "x": 0, "y": 0, "parent": f, "props": {"name": "Label"}}));
+    let comp = idv(&ex(&mut s, "component.create", json!({"ids": [f]})));
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 300, "width": 600, "height": 200, "name": "Hero"})));
+    let inst = idv(&ex(&mut s, "instance.create", json!({"component": comp, "x": 0, "y": 0, "parent": p})));
+    ex(&mut s, "proto.interaction.add", json!({"id": inst, "action": {"type": "openUrl", "url": "https://example.com/book"}}));
+    let react = code(&mut s, p, "react");
+    assert!(react.contains("href={\"https://example.com/book\"}") && react.contains("<Button"), "the call sits in a link: {react}");
+}

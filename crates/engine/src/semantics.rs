@@ -48,7 +48,7 @@ impl Semantics {
 
     /// Whether the element only takes phrasing content (its text children become `span`).
     pub fn phrasing(&self) -> bool {
-        matches!(self.tag, Some("button" | "label" | "span" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
+        matches!(self.tag, Some("button" | "label" | "span" | "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"))
     }
 }
 
@@ -130,7 +130,7 @@ pub fn of(doc: &Document, n: &Node) -> Semantics {
             use figcraft_doc::proto::Action;
             let link = match action {
                 Action::OpenUrl { url } => safe_url(url),
-                Action::Navigate { dest, .. } | Action::ScrollTo { dest, .. } => doc.node(*dest).map(|d| format!("#{}", anchor(&d.name))),
+                Action::Navigate { dest, .. } | Action::ScrollTo { dest, .. } => anchor_for(doc, *dest).map(|a| format!("#{a}")),
                 _ => None,
             };
             match link {
@@ -234,4 +234,20 @@ pub fn link_targets(doc: &Document) -> Vec<NodeId> {
     out.sort_by_key(|id| id.0);
     out.dedup();
     out
+}
+
+/// The anchor of a layer links go to, unique among the file's link targets: its name's anchor,
+/// with `-2`, `-3`… for later targets (by id) whose names make the same one. `None` when no click
+/// interaction goes to it.
+pub fn anchor_for(doc: &Document, id: NodeId) -> Option<String> {
+    let mut used: Vec<String> = Vec::new();
+    for t in link_targets(doc) {
+        let base = doc.node(t).map_or_else(|| "section".to_string(), |n| anchor(&n.name));
+        let a = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base}-{k}") }).find(|a| !used.contains(a)).unwrap_or(base);
+        if t == id {
+            return Some(a);
+        }
+        used.push(a);
+    }
+    None
 }

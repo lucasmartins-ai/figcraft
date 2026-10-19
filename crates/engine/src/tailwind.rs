@@ -218,6 +218,7 @@ fn decl(key: &str, value: &str) -> Vec<(String, String)> {
     let kw = |c: &str| vec![(key.to_string(), c.to_string())];
     match (key, value) {
         ("display", "flex") => kw("flex"),
+        ("display", "block") => kw("block"),
         ("flex-direction", "column") => kw("flex-col"),
         ("flex-direction", _) => kw("flex-row"),
         ("flex-wrap", "wrap") => kw("flex-wrap"),
