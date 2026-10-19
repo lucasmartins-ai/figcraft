@@ -16,7 +16,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![spec!(
         "data.fill",
         "Fill copies with data",
-        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?, fit? (true or text.fit's {maxLines?, minSize?, orphans?}: size the text to its box)}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), formats? ([{name?, width, height}]: each row once per size, the copy resized so its auto layout reflows and named <name>-<format name>; e.g. feed 1080×1350, story 1080×1920, square 1080×1080), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written)}",
+        "{id (the frame to repeat), rows: [{<layer name>: text | {text?, fill? (#rrggbb), visible?, fit? (true or text.fit's {maxLines?, minSize?, orphans?}: size the text to its box)}, name? (the copy's name)}] (every layer with that name in the copy; up to 500 rows), gap? (between copies, placed in a row to the right; default 100), formats? ([{name?, width, height}]: each row once per size, the copy resized so its auto layout reflows and named <name>-<format name>; e.g. feed 1080×1350, story 1080×1920, square 1080×1080), dir? (export each copy there as <name>.<format>), format? (png|jpg|webp|svg|pdf; default png), scale? (default 1)}  one undo step  → {ids (the copies, in row order), missing (keys no layer is named), files? (paths written, one per copy: same file names get a numbered suffix), errors? ([{id, path, error}] for exports that failed; the copies stay)}",
         false,
         fill
     )]
@@ -136,16 +136,27 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(ids)
     })?;
     let mut out = json!({"ids": ids.iter().map(|(i, _)| i.0).collect::<Vec<_>>(), "missing": missing});
-    // Exports after the edits landed: a failed edit writes no files.
+    // Exports after the edits landed: a failed edit writes no files. A failed export keeps the
+    // copies (one undo step removes them) and is reported with the files that were written.
     if let Some(dir) = string(p, "dir") {
-        let mut files = Vec::new();
+        let (mut files, mut errors, mut used) = (Vec::new(), Vec::new(), Vec::<String>::new());
         for (copy, name) in &ids {
-            let path = std::path::Path::new(&dir).join(format!("{}.{format}", file_name(name)));
-            let path = path.to_string_lossy().to_string();
-            s.execute("file.export", &json!({"ids": [copy.0], "format": format, "scale": num_or(p, "scale", 1.0), "path": path}))?;
-            files.push(path);
+            // One file per copy: same or same-looking names get " 2", " 3"… (case-insensitively,
+            // as macOS and Windows file systems compare names).
+            let base = file_name(name);
+            let stem =
+                (1..).map(|k| if k == 1 { base.clone() } else { format!("{base} {k}") }).find(|n| !used.contains(&n.to_lowercase())).unwrap_or(base);
+            used.push(stem.to_lowercase());
+            let path = std::path::Path::new(&dir).join(format!("{stem}.{format}")).to_string_lossy().to_string();
+            match s.execute("file.export", &json!({"ids": [copy.0], "format": format, "scale": num_or(p, "scale", 1.0), "path": path})) {
+                Ok(_) => files.push(path),
+                Err(e) => errors.push(json!({"id": copy.0, "path": path, "error": e.to_string()})),
+            }
         }
         out["files"] = json!(files);
+        if !errors.is_empty() {
+            out["errors"] = json!(errors);
+        }
     }
     Ok(out)
 }

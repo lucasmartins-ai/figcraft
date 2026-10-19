@@ -5,7 +5,7 @@
 //! boxes, and instances inlined with their overrides. Given a mobile frame too, the code is mobile
 //! first: the mobile frame's classes, and the desktop frame's where they differ behind `lg:`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use figcraft_doc::*;
 
@@ -52,42 +52,106 @@ fn role_of_scope(scope: &str) -> Option<NumberRole> {
     })
 }
 
-/// The role of a number variable: the first layer field bound to it, else its first scope with a
-/// role; a number nothing tells about is a length (design tokens mostly are).
-pub fn number_role(doc: &Document, v: &Variable) -> NumberRole {
-    let bound = doc.nodes().find_map(|n| n.bound.iter().find(|(_, id)| **id == v.id).and_then(|(f, _)| role_of_field(f)));
-    bound.or_else(|| v.scopes.as_ref().and_then(|s| s.iter().find_map(|s| role_of_scope(s)))).unwrap_or(NumberRole::Length)
+/// The roles and Tailwind theme names of a file's variables, computed once per export so code
+/// and the `@theme` block always agree.
+#[derive(Default)]
+pub struct Theme {
+    roles: HashMap<VariableId, NumberRole>,
+    names: HashMap<VariableId, String>,
 }
 
-/// A number variable's CSS value: pixels for lengths, bare for opacity and font weight.
-pub fn number_css(doc: &Document, v: &Variable, x: f64) -> String {
-    if number_role(doc, v) == NumberRole::Unitless { num(x) } else { format!("{}px", num(x)) }
-}
+impl Theme {
+    pub fn new(doc: &Document) -> Self {
+        let vars = &doc.variables.variables;
+        // A number's role: the first layer field bound to it, else its scopes.
+        let mut roles: HashMap<VariableId, NumberRole> = HashMap::new();
+        for n in doc.nodes() {
+            for (field, id) in &n.bound {
+                if let Some(r) = role_of_field(field) {
+                    roles.entry(id.clone()).or_insert(r);
+                }
+            }
+        }
+        for v in vars.iter().filter(|v| v.kind == VariableType::Number) {
+            if let Some(r) = v.scopes.as_ref().and_then(|s| s.iter().find_map(|s| role_of_scope(s))) {
+                roles.entry(v.id.clone()).or_insert(r);
+            }
+        }
+        // An alias target with no role of its own takes the role of the variables that read it
+        // (an opacity alias makes its target unitless too).
+        for _ in 0..8 {
+            let mut changed = false;
+            for v in vars {
+                let Some(r) = roles.get(&v.id).copied() else { continue };
+                for value in v.values.values() {
+                    if let VariableValue::Alias(target) = value
+                        && !roles.contains_key(target)
+                    {
+                        roles.insert(target.clone(), r);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut t = Theme { roles, names: HashMap::new() };
+        // Short names ("accent") where they are unique, the full path ("palette-accent") where two
+        // variables would share one, and a numeric suffix as a last resort.
+        let short: Vec<(VariableId, String)> = vars.iter().map(|v| (v.id.clone(), t.candidate(v, false))).collect();
+        let mut taken: Vec<String> = Vec::new();
+        for (v, (id, s)) in vars.iter().zip(&short) {
+            let clash = short.iter().any(|(o, n)| o != id && n == s);
+            let base = if clash { t.candidate(v, true) } else { s.clone() };
+            let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base}-{k}") }).find(|n| !taken.contains(n)).unwrap_or(base);
+            taken.push(name.clone());
+            t.names.insert(id.clone(), name);
+        }
+        t
+    }
 
-/// The Tailwind theme variable for `v`: `--color-*` for colours, `--radius-*`, `--text-*` and
-/// `--spacing-*` for numbers by role, `--font-*` for font families; others keep their CSS name.
-/// A name already in the namespace isn't prefixed twice ("Color/Accent" → `--color-accent`).
-pub fn theme_name(doc: &Document, v: &Variable) -> String {
-    let ns = match v.kind {
-        VariableType::Color => Some("color"),
-        VariableType::Number => match number_role(doc, v) {
-            NumberRole::Radius => Some("radius"),
-            NumberRole::FontSize => Some("text"),
-            NumberRole::Spacing => Some("spacing"),
-            NumberRole::Length | NumberRole::Unitless => None,
-        },
-        VariableType::String if v.scopes.as_ref().is_some_and(|s| s.iter().any(|s| s == "FONT_FAMILY")) => Some("font"),
-        _ => None,
-    };
-    let base = css_var_of(v);
-    let Some(ns) = ns else { return base };
-    // The last path segment names it within the namespace ("Brand/Colors/Accent" → "accent").
-    let slug = css_var_name(v.name.rsplit('/').next().unwrap_or(&v.name));
-    let slug = slug.trim_start_matches('-');
-    let slug = [format!("{ns}s-"), format!("{ns}-")].iter().find_map(|p| slug.strip_prefix(p.as_str())).unwrap_or(slug);
-    // A variable named after its namespace ("radius", "colors") is the namespace's base value.
-    let slug = if slug == ns || slug == format!("{ns}s") { "base" } else { slug };
-    format!("--{ns}-{slug}")
+    /// What a number variable measures; a number nothing tells about is a length.
+    pub fn role(&self, v: &Variable) -> NumberRole {
+        self.roles.get(&v.id).copied().unwrap_or(NumberRole::Length)
+    }
+
+    /// A number variable's CSS value: pixels for lengths, bare for opacity and font weight.
+    pub fn number_css(&self, v: &Variable, x: f64) -> String {
+        if self.role(v) == NumberRole::Unitless { num(x) } else { format!("{}px", num(x)) }
+    }
+
+    /// The theme variable for `v`, unique in the file (see [`Theme::new`]).
+    pub fn name(&self, v: &Variable) -> String {
+        self.names.get(&v.id).cloned().unwrap_or_else(|| self.candidate(v, false))
+    }
+
+    /// `--color-*` for colours, `--radius-*`, `--text-*`, `--spacing-*` for numbers by role,
+    /// `--font-*` for font families, others their CSS name; from the last path segment, or the
+    /// whole path (`full`). A name already in the namespace isn't prefixed twice.
+    fn candidate(&self, v: &Variable, full: bool) -> String {
+        let ns = match v.kind {
+            VariableType::Color => Some("color"),
+            VariableType::Number => match self.role(v) {
+                NumberRole::Radius => Some("radius"),
+                NumberRole::FontSize => Some("text"),
+                NumberRole::Spacing => Some("spacing"),
+                NumberRole::Length | NumberRole::Unitless => None,
+            },
+            VariableType::String if v.scopes.as_ref().is_some_and(|s| s.iter().any(|s| s == "FONT_FAMILY")) => Some("font"),
+            _ => None,
+        };
+        let Some(ns) = ns else {
+            return if full { css_var_name(&v.name) } else { css_var_of(v) };
+        };
+        let source = if full { v.name.as_str() } else { v.name.rsplit('/').next().unwrap_or(&v.name) };
+        let slug = css_var_name(source);
+        let slug = slug.trim_start_matches('-');
+        let slug = [format!("{ns}s-"), format!("{ns}-")].iter().find_map(|p| slug.strip_prefix(p.as_str())).unwrap_or(slug);
+        // A variable named after its namespace ("radius", "colors") is the namespace's base value.
+        let slug = if slug == ns || slug == format!("{ns}s") { "base" } else { slug };
+        format!("--{ns}-{slug}")
+    }
 }
 
 // ------------------------------------------------------------------ declarations → classes
@@ -192,15 +256,17 @@ fn font_weight(v: &str) -> String {
 
 /// A border shorthand (`1px solid c`) on `side` ("" or "t", "r", "b", "l") as width + colour.
 fn border(side: &str, value: &str) -> Vec<(String, String)> {
-    let mut it = value.splitn(3, ' ');
-    let (width, _style, color) = (it.next().unwrap_or(""), it.next(), it.next().unwrap_or(""));
+    // `<width> solid <colour>`, where the width may be `var(--w, 2px)`: split at the style.
+    let (width, color) = value.split_once(" solid ").unwrap_or((value, ""));
+    let (width, color) = (width.trim(), color.trim());
     let b = if side.is_empty() { "border".to_string() } else { format!("border-{side}") };
     let key = format!("border{}", if side.is_empty() { String::new() } else { format!("-{side}") });
     let w = match width {
         "1px" => b.clone(),
         "0px" => format!("{b}-0"),
         w => match var_name(w) {
-            Some(name) => format!("{b}-({name})"),
+            // `border-(--w)` would read as a colour; the hint makes it a width.
+            Some(name) => format!("{b}-(length:{name})"),
             None => format!("{b}-{}", arb(w)),
         },
     };
@@ -247,7 +313,9 @@ fn decl(key: &str, value: &str) -> Vec<(String, String)> {
             Ok(o) if ((o * 100.0).round() - o * 100.0).abs() < 1e-9 => one(format!("opacity-{}", num(o * 100.0))),
             _ => one(util("opacity", "", v, "")),
         },
-        ("background", v) if v.contains("gradient(") || v.starts_with("url(") => one(format!("bg-{}", arb(v))),
+        ("background", v) if v.contains("gradient(") => one(format!("bg-{}", arb(v))),
+        // An image shorthand (`url(…) center / cover`) is a whole `background`, not a bg colour.
+        ("background", v) if v.starts_with("url(") => one(format!("[background:{}]", arb(v).trim_matches(['[', ']']))),
         ("background", v) => one(util("bg", "color", v, "color:")),
         ("color", v) => one(util("text", "color", v, "color:")),
         ("border", v) => border("", v),
@@ -270,7 +338,8 @@ fn decl(key: &str, value: &str) -> Vec<(String, String)> {
             None => one(format!("[transform:{}]", arb(v).trim_matches(['[', ']']))),
         },
         ("transform-origin", "top left" | "0 0") => kw("origin-top-left"),
-        ("font-family", v) if var_name(v).is_some() => one(util("font", "font", v, "")),
+        // `font-(--x)` would read as a weight; the hint makes an un-namespaced variable a family.
+        ("font-family", v) if var_name(v).is_some() => one(util("font", "font", v, "family-name:")),
         ("font-family", v) => one(format!("font-{}", arb(&format!("'{}'", v.trim_matches('"'))))),
         ("font-size", v) => one(util("text", "text", v, "length:")),
         ("font-weight", v) => one(font_weight(v)),
@@ -303,8 +372,12 @@ pub fn classes(decls: &str) -> Vec<(String, String)> {
 }
 
 /// The utility that undoes a mobile class at the breakpoint when desktop sets nothing for it.
-fn reset(key: &str) -> Option<&'static str> {
-    Some(match key {
+fn reset(key: &str) -> Option<String> {
+    // Border widths by side: `border-t-width` → `border-t-0`.
+    if let Some(side) = key.strip_prefix("border").and_then(|k| k.strip_suffix("-width")) {
+        return Some(format!("border{side}-0"));
+    }
+    Some(String::from(match key {
         "display" => "block",
         "flex-direction" => "flex-row",
         "flex-wrap" => "flex-nowrap",
@@ -317,11 +390,58 @@ fn reset(key: &str) -> Option<&'static str> {
         "text-align" => "text-left",
         "justify-content" => "justify-start",
         "gap" => "gap-0",
-        "padding" | "padding-x" | "padding-y" | "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => "p-0",
         "position" => "static",
         "text-transform" => "normal-case",
+        "opacity" => "opacity-100",
+        "border-radius" => "rounded-none",
+        "box-shadow" => "shadow-none",
+        "font-style" => "not-italic",
+        "background" => "bg-transparent",
+        "border-color" => "border-current",
+        "letter-spacing" => "tracking-normal",
+        "line-height" => "leading-normal",
+        "text-decoration" => "no-underline",
+        "align-items" => "items-stretch",
+        "filter" => "filter-none",
+        "backdrop-filter" => "backdrop-filter-none",
+        "transform" => "rotate-0",
+        "left" | "top" | "right" | "bottom" => return Some(format!("{key}-auto")),
+        "mix-blend-mode" => "mix-blend-normal",
         _ => return None,
-    })
+    }))
+}
+
+/// The sides (top, right, bottom, left) a padding utility's property sets.
+fn padding_sides(key: &str) -> [bool; 4] {
+    match key {
+        "padding" => [true; 4],
+        "padding-x" => [false, true, false, true],
+        "padding-y" => [true, false, true, false],
+        "padding-top" => [true, false, false, false],
+        "padding-right" => [false, true, false, false],
+        "padding-bottom" => [false, false, true, false],
+        "padding-left" => [false, false, false, true],
+        _ => [false; 4],
+    }
+}
+
+/// Utilities zeroing `sides` (as few as cover them: `py-0`, `px-0`, else per side).
+fn zero_padding(sides: [bool; 4]) -> Vec<&'static str> {
+    let [t, r, b, l] = sides;
+    let mut out = Vec::new();
+    match (t, b) {
+        (true, true) => out.push("py-0"),
+        (true, false) => out.push("pt-0"),
+        (false, true) => out.push("pb-0"),
+        _ => {}
+    }
+    match (r, l) {
+        (true, true) => out.push("px-0"),
+        (true, false) => out.push("pr-0"),
+        (false, true) => out.push("pl-0"),
+        _ => {}
+    }
+    out
 }
 
 /// Mobile classes plus, behind the breakpoint, the desktop ones that differ (and resets for what
@@ -344,15 +464,26 @@ fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> V
             out.push(bp(c));
         }
     }
-    // Padding utilities overlap (p, px/py, pt…): desktop setting any of them replaces them all.
-    let same = |a: &str, b: &str| a == b || (a.starts_with("padding") && b.starts_with("padding"));
-    for (k, _) in mobile {
-        if !desktop.iter().any(|(d, _)| same(d, k))
+    for (k, _) in mobile.iter().filter(|(k, _)| !k.starts_with("padding")) {
+        if !desktop.iter().any(|(d, _)| d == k)
             && let Some(r) = reset(k)
         {
-            out.push(bp(r));
+            out.push(bp(&r));
         }
     }
+    // Padding utilities overlap (p, px/py, pt…): compare side by side, and zero on desktop the
+    // sides mobile pads and desktop doesn't.
+    let cover = |list: &[(String, String)]| {
+        list.iter().fold([false; 4], |mut acc, (k, _)| {
+            for (a, s) in acc.iter_mut().zip(padding_sides(k)) {
+                *a |= s;
+            }
+            acc
+        })
+    };
+    let (m, d) = (cover(mobile), cover(desktop));
+    let missing = [m[0] && !d[0], m[1] && !d[1], m[2] && !d[2], m[3] && !d[3]];
+    out.extend(zero_padding(missing).into_iter().map(bp));
     out.dedup();
     out
 }

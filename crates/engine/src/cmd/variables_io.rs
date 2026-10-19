@@ -69,7 +69,8 @@ fn css_safe(text: &str) -> String {
 /// other mode's on `[data-<collection>="<mode>"]`; aliases are `var(--name)`, number lengths px.
 fn css(doc: &Document, colls: &[&Collection], tailwind: bool) -> String {
     let vars = &doc.variables;
-    let name = |v: &Variable| if tailwind { crate::tailwind::theme_name(doc, v) } else { css_var_of(v) };
+    let theme = crate::tailwind::Theme::new(doc);
+    let name = |v: &Variable| if tailwind { theme.name(v) } else { css_var_of(v) };
     let mut out = if tailwind { "@import \"tailwindcss\";\n\n".to_string() } else { String::new() };
     for c in colls {
         let attr = css_var_name(&c.name);
@@ -83,7 +84,7 @@ fn css(doc: &Document, colls: &[&Collection], tailwind: bool) -> String {
             for v in vars.variables.iter().filter(|v| v.collection == c.id) {
                 let value = match v.values.get(&m.id) {
                     Some(VariableValue::Color(col)) => col.to_css(),
-                    Some(VariableValue::Number(x)) => crate::tailwind::number_css(doc, v, *x),
+                    Some(VariableValue::Number(x)) => theme.number_css(v, *x),
                     Some(VariableValue::String(t)) => format!("\"{}\"", css_safe(t)),
                     Some(VariableValue::Boolean(b)) => b.to_string(),
                     Some(VariableValue::Alias(a)) => match vars.get(a) {

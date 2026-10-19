@@ -91,17 +91,25 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
                 nbsp = true;
             }
         }
-        let fitted = fits(m);
         let n = doc.get_mut(id)?;
         let NodeKind::Text(t) = &mut n.kind else { continue };
         let count = t.char_count();
         t.restyle(0, count, |st| st.font_size = ((st.font_size * k * 10.0).round() / 10.0).clamp(1.0, 5000.0));
-        if nbsp && let Some(i) = t.characters.trim_end().rfind(' ') {
-            // Same character count, so style runs keep their ranges.
+        // Same character count, so style runs keep their ranges.
+        let joined = if nbsp && let Some(i) = t.characters.trim_end().rfind(' ') {
             t.characters.replace_range(i..i + 1, "\u{a0}");
+            Some(i)
+        } else {
+            None
+        };
+        let mut after = measure(t, 1.0, width);
+        // Keeping the last words together must not break the limit: an orphan is better.
+        if let Some(i) = joined.filter(|_| !fits(after)) {
+            t.characters.replace_range(i..i + '\u{a0}'.len_utf8(), " ");
+            after = measure(t, 1.0, width);
         }
-        let after = measure(t, 1.0, width);
-        out.push(json!({"id": id.0, "fontSize": (t.style.font_size * 10.0).round() / 10.0, "lines": after.0, "fits": fitted, "orphan": orphan && !nbsp && after.2 == 1}));
+        // Reported from the final text (rounded sizes, the no-break space), which callers rely on.
+        out.push(json!({"id": id.0, "fontSize": (t.style.font_size * 10.0).round() / 10.0, "lines": after.0, "fits": fits(after), "orphan": orphans && after.0 > 1 && after.2 == 1}));
     }
     Ok(json!({"fitted": out}))
 }

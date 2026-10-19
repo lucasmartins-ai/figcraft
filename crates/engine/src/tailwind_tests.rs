@@ -290,3 +290,72 @@ fn instances_connected_to_code_are_their_snippet_with_one_import() {
     let out = code(&mut s, p, json!({}));
     assert!(!out.contains("import ") && out.contains(">Agendar diagnóstico<"), "{out}");
 }
+
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+#[test]
+fn review_same_named_variables_keep_distinct_theme_names() {
+    let mut s = Session::new();
+    ex(&mut s, "variable.createCollection", json!({"name": "Brand"}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "Palette/Accent", "type": "color", "value": "#3DDC97"}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "Semantic/Accent", "type": "color", "value": "#7C5CFF"}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "Muted", "type": "color", "value": "#9AA3AE"}));
+    let p = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 400, "height": 200, "name": "Page"})));
+    ex(&mut s, "layout.add", json!({"ids": [p], "direction": "vertical"}));
+    let a = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 100, "height": 50, "parent": p, "name": "A"})));
+    let b = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 100, "height": 50, "parent": p, "name": "B"})));
+    ex(&mut s, "variable.bind", json!({"ids": [a], "field": "fill", "variable": "Palette/Accent"}));
+    ex(&mut s, "variable.bind", json!({"ids": [b], "field": "fill", "variable": "Semantic/Accent"}));
+    let out = code(&mut s, p, json!({}));
+    assert!(out.contains("bg-palette-accent") && out.contains("bg-semantic-accent"), "{out}");
+    let tw = ex(&mut s, "variable.export", json!({"format": "tailwind"}))["text"].as_str().unwrap_or_default().to_lowercase();
+    assert!(tw.contains("--color-palette-accent: #3ddc97;") && tw.contains("--color-semantic-accent: #7c5cff;"), "{tw}");
+    assert!(tw.contains("--color-muted:"), "unique short names stay short: {tw}");
+}
+
+#[test]
+fn review_an_alias_target_takes_its_readers_role() {
+    let mut s = Session::new();
+    ex(&mut s, "variable.createCollection", json!({"name": "Brand"}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "half", "type": "number", "value": 0.5}));
+    ex(&mut s, "variable.create", json!({"collection": "Brand", "name": "fade", "type": "number", "value": 1}));
+    ex(&mut s, "variable.set", json!({"variable": "fade", "value": {"alias": "half"}}));
+    let f = idv(&ex(&mut s, "frame.create", json!({"x": 0, "y": 0, "width": 100, "height": 100})));
+    ex(&mut s, "variable.bind", json!({"ids": [f], "field": "opacity", "variable": "fade"}));
+    let css = ex(&mut s, "variable.export", json!({"format": "css"}))["text"].as_str().unwrap_or_default().to_string();
+    assert!(css.contains("--half: 0.5;") && !css.contains("0.5px"), "{css}");
+}
+
+#[test]
+fn review_borders_images_and_fonts_from_variables_are_valid_utilities() {
+    let got: Vec<String> = classes(
+        "border: var(--stroke, 2px) solid #000000;\nborder-bottom: var(--hair, 1px) solid var(--color-border, #262a31);\nbackground: url(image.png) center / cover;\nfont-family: var(--brand-font, \"Inter\");\n",
+    )
+    .into_iter()
+    .map(|(_, c)| c)
+    .collect();
+    assert_eq!(
+        got,
+        [
+            "border-(length:--stroke)",
+            "border-[#000000]",
+            "border-b-(length:--hair)",
+            "border-border",
+            "[background:url(image.png)_center_/_cover]",
+            "font-(family-name:--brand-font)"
+        ]
+    );
+}
+
+#[test]
+fn review_desktop_defaults_reset_mobile_values_and_padding_per_side() {
+    let mut s = Session::new();
+    let (desk, _) = page(&mut s, "Landing", 1440.0, "horizontal");
+    let (mob, _) = page(&mut s, "Landing mobile", 390.0, "vertical");
+    ex(&mut s, "node.set", json!({"id": mob, "props": {"opacity": 0.5, "padding": 24}}));
+    ex(&mut s, "node.set", json!({"id": desk, "props": {"paddingTop": 0, "paddingBottom": 0, "paddingLeft": 64, "paddingRight": 64}}));
+    let out = code(&mut s, desk, json!({"mobile": mob}));
+    let root = out.lines().nth(3).unwrap_or_default();
+    assert!(root.contains("opacity-50") && root.contains("lg:opacity-100"), "{root}");
+    assert!(root.contains("p-6") && root.contains("lg:px-16") && root.contains("lg:py-0"), "{root}");
+}

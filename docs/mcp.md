@@ -1309,7 +1309,8 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   `--radius-*`, `--text-*`, `--spacing-*`, `--font-*`; a number's namespace and unit come from what
   layers bind it to), other modes on `[data-<collection>="<mode>"]`. With `mobile: <frame id>` (the
   same layer names, mobile layout) the code is mobile first: the mobile frame's classes, the
-  desktop frame's that differ behind `lg:`, and layers only on desktop `hidden lg:flex`.
+  desktop frame's that differ behind `lg:`, and layers only on desktop `hidden` plus `lg:flex`
+  (auto layout frames) or `lg:block` (other layers).
 - **Semantic web code:** HTML, React and Leptos code (`inspect.code`) writes each layer as the
   element it is on a page, from what the file already says:
   - A click interaction that opens a URL makes the layer a link: `<a href="https://…">`. One that

@@ -83,3 +83,22 @@ fn data_fill_sizes_each_copys_text() {
     assert!(size(&s, head(&s, ids[1])) < 96.0, "long copy shrinks");
     assert_eq!(size(&s, t), 96.0, "the source is untouched");
 }
+
+#[test]
+fn review_fits_is_reported_from_the_final_text() {
+    let mut s = Session::new();
+    for (text, width, lines) in [
+        ("Seu site e seu WhatsApp com IA, prontos em 7 dias", 600.0, 2.0),
+        ("Lighthouse 100, abre em menos de 1s.", 520.0, 2.0),
+        ("Curto", 300.0, 1.0),
+    ] {
+        let t = headline(&mut s, text, width);
+        let r = ex(&mut s, "text.fit", json!({"ids": [t], "maxLines": lines}));
+        let f = &r["fitted"][0];
+        let doc = s.doc().unwrap();
+        let NodeKind::Text(tx) = &doc.node(t).unwrap().kind else { panic!() };
+        let real = figcraft_text::layout(tx, Some(width), None).lines.len();
+        assert_eq!(f["lines"].as_u64().unwrap() as usize, real, "{r}");
+        assert_eq!(f["fits"].as_bool().unwrap(), real as f64 <= lines, "{r}");
+    }
+}

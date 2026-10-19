@@ -333,12 +333,15 @@ pub(crate) struct Tokens {
     vars: Vec<(String, String)>,
     /// Name variables as Tailwind theme variables (`--color-accent`), not by their CSS name.
     pub tailwind: bool,
+    /// The file's theme names (computed on first use).
+    theme: Option<crate::tailwind::Theme>,
 }
 
 impl Tokens {
     /// `var(--name, value)`, remembering the variable.
     fn var(&mut self, doc: &Document, variable: &Variable, value: String) -> String {
-        let name = if self.tailwind { crate::tailwind::theme_name(doc, variable) } else { css_var_of(variable) };
+        let name =
+            if self.tailwind { self.theme.get_or_insert_with(|| crate::tailwind::Theme::new(doc)).name(variable) } else { css_var_of(variable) };
         let out = format!("var({name}, {value})");
         if !self.vars.iter().any(|(n, _)| *n == name) {
             self.vars.push((name, value));

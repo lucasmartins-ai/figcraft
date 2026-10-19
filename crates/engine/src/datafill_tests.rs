@@ -117,3 +117,26 @@ fn each_row_comes_in_every_format() {
         assert!(s.execute("data.fill", &json!({"id": f, "rows": [{}], "formats": bad})).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn review_export_names_are_unique_and_failures_are_reported() {
+    let mut s = Session::new();
+    let f = post(&mut s);
+    let dir = std::env::temp_dir().join(format!("figcraft-datafill-names-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = ex(
+        &mut s,
+        "data.fill",
+        json!({"id": f, "rows": [{"name": "Post"}, {"name": "post"}, {"name": "a/b"}, {"name": "a:b"}], "dir": dir.to_string_lossy(), "scale": 0.1}),
+    );
+    let files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let lower: std::collections::HashSet<String> = files.iter().map(|f| f.to_lowercase()).collect();
+    assert_eq!(lower.len(), 4, "one file per copy: {files:?}");
+    assert!(files.iter().all(|p| std::fs::metadata(p).is_ok()), "{files:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+    // A folder that can't be written: the copies stay and every failure is reported.
+    let r = ex(&mut s, "data.fill", json!({"id": f, "rows": [{"name": "x"}], "dir": "/nonexistent-figcraft-dir/out"}));
+    assert_eq!(r["ids"].as_array().unwrap().len(), 1);
+    assert_eq!(r["errors"].as_array().map(Vec::len), Some(1), "{r}");
+    assert!(s.doc().unwrap().contains(NodeId(r["ids"][0].as_u64().unwrap())));
+}
