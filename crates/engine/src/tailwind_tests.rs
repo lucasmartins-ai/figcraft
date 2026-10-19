@@ -291,8 +291,6 @@ fn instances_connected_to_code_are_their_snippet_with_one_import() {
     assert!(!out.contains("import ") && out.contains(">Agendar diagnóstico<"), "{out}");
 }
 
-const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-
 #[test]
 fn review_same_named_variables_keep_distinct_theme_names() {
     let mut s = Session::new();
