@@ -21,9 +21,9 @@ use figcraft_doc::*;
 /// The id of the built-in Accessibility annotation category.
 const A11Y: &str = "accessibility";
 
-const TAGS: [&str; 20] = [
+const TAGS: [&str; 21] = [
     "h1", "h2", "h3", "h4", "h5", "h6", "nav", "header", "footer", "main", "section", "article", "aside", "ul", "ol", "li", "button", "a", "label",
-    "span",
+    "span", "p",
 ];
 
 /// A layer's element and attributes on a web page (all `None`/false: a plain `div` or `p`).
@@ -88,6 +88,8 @@ fn apply_line(s: &mut Semantics, line: &str) {
     if let Some((key, value)) = line.split_once(':') {
         let value = value.trim().to_string();
         match key.trim().to_ascii_lowercase().as_str() {
+            // An empty alt is the HTML convention for a decorative image.
+            "alt" if value.is_empty() => s.decorative = true,
             "alt" => s.alt = Some(value),
             "label" | "aria-label" => s.label = Some(value).filter(|v| !v.is_empty()),
             "href" | "link" => s.href = safe_url(&value),
@@ -144,11 +146,24 @@ pub fn of(doc: &Document, n: &Node) -> Semantics {
     if s.href.is_some() && !matches!(s.tag, Some("a")) {
         s.tag = Some("a");
     }
+    // `role="img"` hides a layer's children from assistive technology, so only layers without
+    // children are images; a frame with a photo background keeps its heading and buttons.
+    if !n.children.is_empty() {
+        s.alt = None;
+    }
     let image = n.fills.iter().any(|p| p.visible && matches!(p.kind, PaintKind::Image(_)));
-    if image && !s.decorative && s.alt.is_none() {
+    if image && n.children.is_empty() && !s.decorative && s.alt.is_none() && !default_name(&n.name) {
         s.alt = Some(n.name.trim().to_string());
     }
     s
+}
+
+/// A name the app gave the layer ("Rectangle 12", "Image", "Frame 3"): no use as alt text.
+fn default_name(name: &str) -> bool {
+    let base = name.trim().trim_end_matches(|c: char| c.is_ascii_digit()).trim_end();
+    base.is_empty()
+        || ["rectangle", "ellipse", "frame", "image", "group", "vector", "polygon", "star", "line", "layer", "shape", "photo", "picture"]
+            .contains(&base.to_ascii_lowercase().as_str())
 }
 
 /// The layers click interactions navigate or scroll to: their code carries `id="<anchor>"`, so

@@ -643,6 +643,8 @@ pub(crate) struct Markup<'c, 'a> {
     pub rules: Vec<(String, String, String)>,
     /// Inside an element that only takes phrasing content (a button, a heading).
     phrasing: bool,
+    /// Inside a link or button (another one inside would be invalid HTML).
+    interactive: bool,
     /// The layers links go to (computed on first use).
     targets: Option<Vec<NodeId>>,
 }
@@ -660,6 +662,7 @@ impl<'c, 'a> Markup<'c, 'a> {
             root_attrs: String::new(),
             rules: Vec::new(),
             phrasing: false,
+            interactive: false,
             targets: None,
         }
     }
@@ -765,7 +768,12 @@ impl<'c, 'a> Markup<'c, 'a> {
         if n.layout.is_none() && !n.children.is_empty() && !root && in_flow {
             own.push_str("position: relative;\n");
         }
-        let sem = crate::semantics::of(doc, n);
+        let mut sem = crate::semantics::of(doc, n);
+        // No link or button inside another: HTML forbids nested interactive content.
+        if self.interactive && matches!(sem.tag, Some("a" | "button")) {
+            sem.tag = None;
+            sem.href = None;
+        }
         // Browser defaults the design doesn't have, before the layer's own declarations so they
         // win: boxes measure like the canvas, text has no margins, links and buttons look like
         // their layer.
@@ -836,8 +844,9 @@ impl<'c, 'a> Markup<'c, 'a> {
                         None => depth + 1,
                     };
                     let mut seen: Vec<&str> = Vec::new();
-                    let outer = self.phrasing;
+                    let (outer, outer_interactive) = (self.phrasing, self.interactive);
                     self.phrasing = outer || sem.phrasing();
+                    self.interactive = outer_interactive || matches!(sem.tag, Some("a" | "button"));
                     // Bottom layer first: later elements paint on top, like the layer order.
                     for k in kids {
                         let Some(kn) = doc.node(k) else { continue };
@@ -846,6 +855,7 @@ impl<'c, 'a> Markup<'c, 'a> {
                         self.node(k, Some(n), inner, &format!("{path}/{}#{count}", kn.name));
                     }
                     self.phrasing = outer;
+                    self.interactive = outer_interactive;
                     match slot {
                         Some(_) if leptos => self.markup.push_str(&format!("{p1}}}.into_any() }}}}\n")),
                         Some(_) => self.markup.push_str(&format!("{p2}</>\n{p1})}}\n")),
