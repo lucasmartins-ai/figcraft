@@ -343,11 +343,12 @@ fn system_languages_pick_the_first_one_with_a_catalog() {
     // Portugal's Portuguese and a bare "pt" read the Brazilian catalog.
     assert_eq!(code("system", Some("pt-PT")), "pt-BR");
     assert_eq!(code("pt", None), "pt-BR");
-    // An OS list: the first language there is a catalog for (English counts).
-    assert_eq!(code("system", Some("nl-NL,de-DE,en-US")), "de");
-    assert_eq!(code("system", Some("nl-NL, en-US,fr-FR")), "en");
-    assert_eq!(code("system", Some("nl,da")), "en");
-    assert_eq!(code("system", Some("nl,sv")), "sv");
+    // An OS list: the first language there is a catalog for (English counts). Hindi has no
+    // catalog (Dutch gained one; `hi` keeps exercising the no-catalog path).
+    assert_eq!(code("system", Some("hi-IN,de-DE,en-US")), "de");
+    assert_eq!(code("system", Some("hi-IN, en-US,fr-FR")), "en");
+    assert_eq!(code("system", Some("hi,da")), "en");
+    assert_eq!(code("system", Some("hi,sv")), "sv");
     assert_eq!(code("fr", Some("de-DE")), "fr", "a chosen language beats the system's");
 }
 
@@ -472,7 +473,7 @@ fn russian_language_tags_and_integer_plurals() {
         assert_eq!(resolve(tag, None), ru, "{tag}");
         assert_eq!(resolve("system", Some(tag)), ru, "{tag}");
     }
-    assert_eq!(resolve("system", Some("nl,ru-RU,en-US")), ru);
+    assert_eq!(resolve("system", Some("hi,ru-RU,en-US")), ru);
     for n in [1, 21, 31, 101, 1_001] {
         assert_eq!(plural("ru", n), Plural::One, "{n}");
         assert_eq!(fill(counted(ru, "{n} layers", n), &[("n", &n)]), format!("{n} слой"));
