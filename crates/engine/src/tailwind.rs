@@ -32,14 +32,30 @@ impl Theme {
         let mut t = Theme { roles, names: HashMap::new() };
         // Short names ("accent") where they are unique, the full path ("palette-accent") where two
         // variables would share one, and a numeric suffix as a last resort.
-        let short: Vec<(VariableId, String)> = vars.iter().map(|v| (v.id.clone(), t.candidate(v, false))).collect();
-        let mut taken: Vec<String> = Vec::new();
-        for (v, (id, s)) in vars.iter().zip(&short) {
-            let clash = short.iter().any(|(o, n)| o != id && n == s);
-            let base = if clash { t.candidate(v, true) } else { s.clone() };
-            let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base}-{k}") }).find(|n| !taken.contains(n)).unwrap_or(base);
-            taken.push(name.clone());
-            t.names.insert(id.clone(), name);
+        let short: Vec<String> = vars.iter().map(|v| t.candidate(v, false)).collect();
+        // Linear in the number of variables: counts for clashes, a set of names taken and the next
+        // suffix per base, so a file with very many variables can't make this quadratic.
+        let mut count: HashMap<&str, usize> = HashMap::new();
+        for n in &short {
+            *count.entry(n.as_str()).or_default() += 1;
+        }
+        let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut next: HashMap<String, usize> = HashMap::new();
+        for (v, s) in vars.iter().zip(&short) {
+            let base = if count.get(s.as_str()).copied().unwrap_or(0) > 1 { t.candidate(v, true) } else { s.clone() };
+            let mut name = base.clone();
+            if taken.contains(&name) {
+                let k = next.entry(base.clone()).or_insert(1);
+                loop {
+                    *k += 1;
+                    name = format!("{base}-{k}");
+                    if !taken.contains(&name) {
+                        break;
+                    }
+                }
+            }
+            taken.insert(name.clone());
+            t.names.insert(v.id.clone(), name);
         }
         t
     }
