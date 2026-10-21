@@ -396,7 +396,8 @@ fn reset(key: &str) -> Option<String> {
         "border-radius" => "rounded-none",
         "box-shadow" => "shadow-none",
         "font-style" => "not-italic",
-        "background" => "bg-transparent",
+        // The whole background: a mobile image or gradient would survive a colour-only reset.
+        "background" => "bg-none bg-transparent",
         "border-color" => "border-current",
         "letter-spacing" => "tracking-normal",
         "line-height" => "leading-normal",
@@ -446,7 +447,7 @@ fn zero_padding(sides: [bool; 4]) -> Vec<&'static str> {
 
 /// Mobile classes plus, behind the breakpoint, the desktop ones that differ (and resets for what
 /// desktop leaves unset). A layer missing on mobile is hidden there.
-fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> Vec<String> {
+pub(crate) fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> Vec<String> {
     let hidden = [("display".to_string(), "hidden".to_string())];
     // A mobile frame's widths are the phone's, not caps: below the breakpoint boxes fill the page.
     let fluid: Vec<(String, String)>;
@@ -468,7 +469,7 @@ fn merge(mobile: Option<&[(String, String)]>, desktop: &[(String, String)]) -> V
         if !desktop.iter().any(|(d, _)| d == k)
             && let Some(r) = reset(k)
         {
-            out.push(bp(&r));
+            out.extend(r.split_whitespace().map(bp));
         }
     }
     // Padding utilities overlap (p, px/py, pt…): compare side by side, and zero on desktop the

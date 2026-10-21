@@ -4,7 +4,7 @@
 
 use crate::Session;
 use crate::components::tests::{ex, idv};
-use crate::tailwind::classes;
+use crate::tailwind::{classes, merge};
 use figcraft_doc::*;
 use serde_json::json;
 
@@ -356,4 +356,10 @@ fn review_desktop_defaults_reset_mobile_values_and_padding_per_side() {
     let root = out.lines().nth(3).unwrap_or_default();
     assert!(root.contains("opacity-50") && root.contains("lg:opacity-100"), "{root}");
     assert!(root.contains("p-6") && root.contains("lg:px-16") && root.contains("lg:py-0"), "{root}");
+}
+
+#[test]
+fn review_desktop_without_fill_clears_a_mobile_image_or_gradient() {
+    let got = merge(Some(&[("background".to_string(), "[background:url(image.png)_center_/_cover]".to_string())]), &[]);
+    assert!(got.contains(&"lg:bg-none".to_string()) && got.contains(&"lg:bg-transparent".to_string()), "{got:?}");
 }
