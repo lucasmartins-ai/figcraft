@@ -85,6 +85,8 @@ icons! {
     CornerRadius,
     Angle,
     IndependentCorners,
+    /// Individual padding: a frame with one inward tick per side, each set alone.
+    IndependentPadding,
     LinkOn,
     LinkOff,
     LayoutH,
@@ -139,6 +141,11 @@ icons! {
     Fixed,
     PaddingH,
     PaddingV,
+    /// Individual padding sides: a frame with the controlled side filled.
+    PaddingTop,
+    PaddingRight,
+    PaddingBottom,
+    PaddingLeft,
     Gap,
     Reset,
     Detach,
@@ -713,6 +720,14 @@ fn draw(p: &P, icon: Icon) {
                 p.corner(x, y, dx, dy, 4.0, 2.0);
             }
         }
+        IndependentPadding => {
+            // A frame outline with one inward tick per side: each side's padding, set alone.
+            p.rect(2.5, 2.5, 13.5, 13.5, 2.0);
+            p.line(8.0, 2.5, 8.0, 5.0);
+            p.line(13.5, 8.0, 11.0, 8.0);
+            p.line(8.0, 13.5, 8.0, 11.0);
+            p.line(2.5, 8.0, 5.0, 8.0);
+        }
         LinkOn | Link => {
             p.path(&capsule((4.0, 12.0), (6.5, 9.5), 2.4), true);
             p.path(&capsule((9.5, 6.5), (12.0, 4.0), 2.4), true);
@@ -930,12 +945,32 @@ fn draw(p: &P, icon: Icon) {
             p.line(3.0, 7.5, 13.0, 7.5);
         }
         PaddingH => {
-            p.rect(2.5, 3.5, 13.5, 12.5, 1.0);
-            p.fill_rect(5.0, 6.0, 11.0, 10.0, 0.0);
+            // Horizontal padding: bars down the padded left and right sides in their frame.
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(2.5, 2.5, 5.5, 13.5, 1.0);
+            p.fill_rect(10.5, 2.5, 13.5, 13.5, 1.0);
         }
         PaddingV => {
-            p.rect(3.5, 2.5, 12.5, 13.5, 1.0);
-            p.fill_rect(6.0, 5.0, 10.0, 11.0, 0.0);
+            // Vertical padding: bars across the padded top and bottom in their frame.
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(2.5, 2.5, 13.5, 5.5, 1.0);
+            p.fill_rect(2.5, 10.5, 13.5, 13.5, 1.0);
+        }
+        PaddingTop => {
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(2.5, 2.5, 13.5, 5.5, 1.0);
+        }
+        PaddingRight => {
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(10.5, 2.5, 13.5, 13.5, 1.0);
+        }
+        PaddingBottom => {
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(2.5, 10.5, 13.5, 13.5, 1.0);
+        }
+        PaddingLeft => {
+            p.rect(2.5, 2.5, 13.5, 13.5, 1.0);
+            p.fill_rect(2.5, 2.5, 5.5, 13.5, 1.0);
         }
         Online => {
             p.circle(8.0, 8.0, 5.5);

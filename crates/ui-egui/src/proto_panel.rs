@@ -53,6 +53,8 @@ pub fn delete_selected_interaction(app: &mut FigApp, ctx: &egui::Context) -> boo
         return false;
     }
     open_editor(ctx, None);
+    // Delete went to the interaction, so a later one doesn't go to the Pages list.
+    app.ui.pages_focus = None;
     let ids = targets_for(app, node);
     app.run("proto.interaction.remove", json!({"ids": ids, "index": index}));
     true
@@ -924,7 +926,20 @@ pub(crate) fn action_fields(app: &mut FigApp, ui: &mut Ui, doc: &Document, page:
                     let w = ((ui.available_width() - 6.0) / 2.0).max(36.0);
                     for (i, (name, key)) in [("X", "proto_ov_x"), ("Y", "proto_ov_y")].into_iter().enumerate() {
                         let shown = offset.and_then(|o| o.get(i).copied());
-                        let Some(e) = widgets::number_field_bindable(ui, slot.id(key), Lead::Text(name), shown, "", w, 1.0, None, tr("Auto")).0
+                        // "Auto" is no offset (right below the layer), not 0: the word isn't taken
+                        // as a value here.
+                        let Some(e) = widgets::number_field_bindable(
+                            ui,
+                            slot.id(key),
+                            Lead::Text(name),
+                            shown,
+                            "",
+                            w,
+                            1.0,
+                            None,
+                            widgets::Empty::Text(tr("Auto")),
+                        )
+                        .0
                         else {
                             continue;
                         };

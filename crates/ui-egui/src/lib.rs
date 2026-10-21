@@ -61,6 +61,7 @@ pub mod tabs;
 pub mod theme;
 pub mod toolbar;
 pub mod typography;
+pub mod ui_scale;
 pub mod variable_ui;
 pub mod variables_panel;
 pub mod vector_panel;
@@ -146,6 +147,8 @@ mod live_tests;
 #[cfg(test)]
 mod live_text_tests;
 #[cfg(test)]
+mod measure_nudge_tests;
+#[cfg(test)]
 mod menu_aim_tests;
 #[cfg(test)]
 mod menu_input_tests;
@@ -155,6 +158,8 @@ mod missing_fonts_tests;
 mod online_tests;
 #[cfg(test)]
 mod open_issues_tests;
+#[cfg(test)]
+mod padding_individual_tests;
 #[cfg(test)]
 mod palette_tests;
 #[cfg(test)]
@@ -204,9 +209,13 @@ mod text_enter_tests;
 #[cfg(test)]
 mod titlebar_tests;
 #[cfg(test)]
+mod ui_scale_tests;
+#[cfg(test)]
 mod variables_export_ui_tests;
 #[cfg(test)]
 mod variables_rename_tests;
+#[cfg(test)]
+mod variants_discovery_tests;
 #[cfg(test)]
 mod vector_panel_tests;
 #[cfg(test)]
@@ -483,8 +492,13 @@ pub struct UiState {
     pub last_right_tab: RightTab,
     pub left_tab: LeftTab,
     pub pages_open: bool,
+    /// Pages panel search: open, and the case-insensitive name filter.
+    pub page_search: bool,
+    pub page_filter: String,
     /// The height asked for the pages list (`None`: a share of the panel).
     pub pages_height: Option<f32>,
+    /// The document and active page last drawn in the pages list.
+    pub pages_seen_page: Option<(u64, NodeId)>,
     pub expanded: BTreeSet<NodeId>,
     /// The layer being renamed in the layers panel.
     pub rename: Option<layers::Rename>,
@@ -511,6 +525,9 @@ pub struct UiState {
     pub menu_input: Option<dialogs::MenuInput>,
     /// File ▸ Rename: the file name in the left panel starts its inline rename on the next frame.
     pub rename_file: bool,
+    /// What the interface size drew last frame and whether the window held it back. Set by
+    /// [`FigApp::logic`] for the main window.
+    pub ui_scale: ui_scale::Plan,
     pub shortcuts_panel: bool,
     /// The Keyboard shortcuts panel's tab and search text.
     pub shortcuts_tab: figcraft_engine::keymap::Group,
@@ -552,6 +569,10 @@ pub struct UiState {
     /// The layers panel has the keyboard: arrow keys move through its rows instead of nudging
     /// (set by a click on a row, cleared by a press on the canvas).
     pub layers_focus: bool,
+    /// The file (its `uid`) whose pages list has the keyboard: Delete with no layers selected deletes
+    /// its current page (set by a click on a page row or the add-page button, cleared by a click on a
+    /// layer row or a press on the canvas).
+    pub pages_focus: Option<u64>,
     pub layers_seen_sel: Vec<NodeId>,
     pub dark: bool,
     pub follow_system: bool,
@@ -647,7 +668,10 @@ impl Default for UiState {
             last_right_tab: RightTab::Design,
             left_tab: LeftTab::File,
             pages_open: true,
+            page_search: false,
+            page_filter: String::new(),
             pages_height: None,
+            pages_seen_page: None,
             expanded: BTreeSet::new(),
             rename: None,
             rename_page: None,
@@ -664,6 +688,7 @@ impl Default for UiState {
             preferences: false,
             menu_input: None,
             rename_file: false,
+            ui_scale: ui_scale::plan(1.0, None, None),
             shortcuts_panel: false,
             shortcuts_tab: figcraft_engine::keymap::Group::Essential,
             shortcuts_query: String::new(),
@@ -686,6 +711,7 @@ impl Default for UiState {
             layer_filter: String::new(),
             layer_anchor: None,
             layers_focus: false,
+            pages_focus: None,
             layers_seen_sel: Vec::new(),
             dark: false,
             follow_system: false,
@@ -810,9 +836,17 @@ impl FigApp {
         }
     }
 
+    /// Dismiss the composer after a successful switch away from the Comment tool.
+    pub(crate) fn clear_comment_draft_after_tool_set(&mut self, id: &str, succeeded: bool) {
+        if id == "tool.set" && succeeded && self.session.tool.tool != figcraft_engine::tools::ToolId::Comment {
+            self.ui.comments.draft = None;
+        }
+    }
+
     /// Run a command, surfacing errors as a toast. Returns the result.
     pub fn run(&mut self, id: &str, params: Value) -> Option<Value> {
         let r = self.session.execute(id, &params);
+        self.clear_comment_draft_after_tool_set(id, r.is_ok());
         self.handle_ui_requests();
         r.map_err(|e| self.failed(id, &e)).ok()
     }
@@ -1288,11 +1322,11 @@ impl FigApp {
         self.session.prefs.reduce_motion || self.services.reduce_motion()
     }
 
-    /// The CJK scripts the UI shows: the language's, the language picker's (Preferences open),
+    /// The CJK and Bengali scripts the UI shows: the language's, the language picker's (Preferences open),
     /// typed text's, and those in the open file's names and comments (read when it changes, not
     /// mid-drag). Nothing is checked once every script has a face.
     fn cjk_needed(&mut self, ctx: &egui::Context, installed: u8) -> u8 {
-        if installed == cjk::KANA | cjk::HANGUL | cjk::HAN {
+        if installed == cjk::ALL {
             return installed;
         }
         let mut need = i18n::current().map_or(0, |l| cjk::language(l.code));
@@ -1351,6 +1385,16 @@ impl FigApp {
                 self.script_fonts = Some((cjk, lang));
                 theme::install_fonts(ctx, true, cjk);
             }
+        }
+        // egui's zoom is for the whole app and multiplies each window's own system scale, so the
+        // size is the same relative to every screen; the main window, whose size can hold a size
+        // back, sets it. The browser keeps its own zoom.
+        if ctx.viewport_id() == egui::ViewportId::ROOT {
+            let window_px = ctx.content_rect().size() * ctx.pixels_per_point();
+            let size = if cfg!(target_arch = "wasm32") { 1.0 } else { self.session.prefs.ui_scale };
+            let plan = ui_scale::plan(size, ctx.native_pixels_per_point(), Some((window_px.x, window_px.y)));
+            ctx.set_zoom_factor(plan.zoom);
+            self.ui.ui_scale = plan;
         }
         let dark = match self.session.prefs.theme.as_str() {
             "dark" => true,
@@ -1481,7 +1525,7 @@ impl FigApp {
         // What happened in a live session (the network woke us for it).
         if self.session.live_poll() {
             if let Some(m) = self.session.message.take() {
-                self.toast(m);
+                self.toast(live::failure_text(&m));
             }
             self.background_done(&ctx);
         }
@@ -1770,6 +1814,8 @@ impl FigApp {
             "importReport": self.ui.import_report.as_ref().map(import_report::Report::inspect),
         });
         state["homeSearch"] = json!(self.ui.home_view.file_query);
+        // Set apart from the literal above, which is at the macro recursion limit.
+        state["uiScale"] = json!({"choice": self.session.prefs.ui_scale, "zoom": self.ui.ui_scale.zoom, "drawn": self.ui.ui_scale.drawn, "limited": self.ui.ui_scale.limited});
         state["pendingOpens"] = json!(self.ui.pending_opens.len());
         state["missingFonts"] = json!(self.ui.missing_fonts.as_ref().map(missing_fonts::Shown::inspect));
         state
@@ -1782,6 +1828,12 @@ pub(crate) const OPEN_EXTENSIONS: &[&str] = &["figcraft", "fig", "json", "svg", 
 /// Whether `path` names a file type that opens as a document (the extension, in any case).
 pub(crate) fn opens(path: &Path) -> bool {
     path.extension().and_then(|e| e.to_str()).is_some_and(|e| OPEN_EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+}
+
+/// Whether `path` is a whole document (`.figcraft`, `.fig`, file JSON) rather than an image or SVG:
+/// dropped on the canvas it opens as a file of its own instead of adding its pages to the open one.
+pub(crate) fn is_document(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| ["figcraft", "fig", "json"].iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
 /// Reads the contents of dropped file `name` that has no file on disk to read by path.

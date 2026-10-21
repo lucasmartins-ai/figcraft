@@ -481,5 +481,40 @@ pub fn specs() -> Vec<CommandSpec> {
                 })
             }
         ),
+        spec!(
+            "text.rescanFonts",
+            "Rescan installed fonts",
+            "{}  walks the system font folders again, for fonts installed while the app runs; the open document's auto-sizing text in the families that gained faces (new ones, or styles installed since) fits them (text.refit) → {added: [families that were unknown], refitted: [ids]}",
+            true,
+            |s, _| {
+                let rescan = figcraft_text::rescan_system_fonts();
+                let refitted = crate::fonts::refit_open(s, None, Some(&rescan.changed));
+                Ok(json!({"added": rescan.added, "refitted": refitted}))
+            }
+        ),
+        spec!(
+            "text.loadFont",
+            "Load font file",
+            "{path | data (base64)}  adds a font file (.ttf, .otf, .ttc, .otc; every face of a collection) to this session's fonts without installing it; the open document's auto-sizing text in its families fits it (text.refit) → {families, refitted: [ids]}",
+            true,
+            |s, p| {
+                let cmd = "text.loadFont";
+                let bytes = if let Some(b64) = string(p, "data") {
+                    use base64::Engine as _;
+                    let b64 = b64.split_once(',').map(|(_, d)| d.to_string()).unwrap_or(b64);
+                    base64::engine::general_purpose::STANDARD.decode(b64.trim()).map_err(|e| bad(cmd, format!("`data`: {e}")))?
+                } else if let Some(path) = string(p, "path") {
+                    super::file::read_capped(&path, figcraft_text::fontdb::MAX_FONT_FILE)?
+                } else {
+                    return Err(bad(cmd, "pass `path` or `data` (base64)"));
+                };
+                let families = figcraft_text::load_font_bytes(bytes);
+                if families.is_empty() {
+                    return Err(bad(cmd, "not a font file"));
+                }
+                let refitted = crate::fonts::refit_open(s, None, Some(&families));
+                Ok(json!({"families": families, "refitted": refitted}))
+            }
+        ),
     ]
 }

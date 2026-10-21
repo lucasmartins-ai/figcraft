@@ -183,7 +183,9 @@ pub fn show(app: &mut FigApp, ui: &mut Ui, worker: &mut Worker) {
         }
     }
     let own_cursor = input(app, ui, &resp);
-    crate::drop_overlay(&ctx, ctx.content_rect(), tr("Drop to import"));
+    // A browser names no dragged file until the drop, so documents there still say "import".
+    let documents = ctx.input(|i| i.raw.hovered_files.iter().all(|f| f.path.as_deref().is_some_and(crate::is_document)));
+    crate::drop_overlay(&ctx, ctx.content_rect(), if documents { tr("Drop to open") } else { tr("Drop to import") });
     crate::guides::end_released(&ctx);
     crate::live::track_pointer(app, &ctx);
     app.sync_preedit();
@@ -491,6 +493,8 @@ fn zoom_tool(app: &mut FigApp, ui: &Ui, resp: &egui::Response, pos: Pos2, mods: 
 /// then doesn't show.
 fn input(app: &mut FigApp, ui: &mut Ui, resp: &egui::Response) -> bool {
     if crate::proto_canvas::input(app, ui, resp) {
+        // A prototype gesture is a press on the canvas too: the Pages list gives up the keyboard.
+        app.ui.pages_focus = None;
         return true;
     }
     let ctx = ui.ctx().clone();
@@ -502,10 +506,15 @@ fn input(app: &mut FigApp, ui: &mut Ui, resp: &egui::Response) -> bool {
     if !app.canvas.dragging && crate::selection_spacing::input(app, &ctx, hover_pos, resp.hovered(), app.canvas.space_pan) {
         return false;
     }
-    // Dropped files import onto the canvas, behind a card while they do ([`crate::pending_open`]).
+    // Dropped files import onto the canvas, behind a card while they do ([`crate::pending_open`]);
+    // a dropped document opens as a file of its own, as on the home screen.
     let dropped = ctx.input(|i| i.raw.dropped_files.clone());
     for f in dropped {
         let path = f.path().to_path_buf();
+        if crate::is_document(&path) {
+            crate::pending_open::open_dropped(app, &f);
+            continue;
+        }
         let pt = hover_pos.map(|h| app.to_page(h)).unwrap_or_default();
         let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "dropped.png".into());
         let (params, read) = if path.exists() {
@@ -541,6 +550,7 @@ fn input(app: &mut FigApp, ui: &mut Ui, resp: &egui::Response) -> bool {
     // A press on the canvas gives the keyboard back to it (arrows nudge again).
     if resp.hovered() && ctx.input(|i| i.pointer.any_pressed()) {
         app.ui.layers_focus = false;
+        app.ui.pages_focus = None;
         app.ui.key_box = None;
     }
     // Zoom (pinch, Cmd/Ctrl+scroll) about the pointer; plain scroll pans.
@@ -1008,7 +1018,7 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
             width_overlay(app, painter, &doc, &ve, zoom);
         } else if let Some(c) = app.session.vector_edit_box() {
             let label = format!("{} × {}", fmt((c[1] - c[0]).hypot()), fmt((c[3] - c[0]).hypot()));
-            size_label = transform_box(app, painter, c.map(|p| app.to_screen(p.x, p.y)), accent(painter), true, 4, label);
+            size_label = transform_box(app, painter, c.map(|p| app.to_screen(p.x, p.y)), accent(painter), true, 4, Some(label));
         }
     }
     // Selection.
@@ -1032,8 +1042,10 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
             // A layer smaller than its handles on screen shows just its outline (they still answer
             // just outside it).
             let tiny = figcraft_engine::tools::box_sides_px(&b, zoom).1 < figcraft_engine::tools::SMALL_BOX_PX;
+            // Measuring to another layer (Alt held) shows just the outlines: no handles or size.
+            let measuring = app.session.tool.overlay.measure_box.is_some();
             // Locked layers (selected in the layers panel) can't be resized: no handles either.
-            let handles = if sel.iter().any(|i| figcraft_engine::tools::locked_in(&doc, *i)) {
+            let handles = if measuring || sel.iter().any(|i| figcraft_engine::tools::locked_in(&doc, *i)) {
                 0
             } else if is_line {
                 2
@@ -1042,9 +1054,11 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
             } else {
                 4
             };
-            size_label = transform_box(app, painter, b.map(|p| app.to_screen(p.x, p.y)), col, sel.len() > 1, handles, label);
-            arc_overlay(app, painter, col);
-            shape_overlay(app, painter, col);
+            size_label = transform_box(app, painter, b.map(|p| app.to_screen(p.x, p.y)), col, sel.len() > 1, handles, (!measuring).then_some(label));
+            if !measuring {
+                arc_overlay(app, painter, col);
+                shape_overlay(app, painter, col);
+            }
             if app.session.tool.tool == ToolId::Scale {
                 // The point that stays put: the dragged pivot, else the anchor.
                 let pivot = scale
@@ -1182,8 +1196,16 @@ fn overlays(app: &FigApp, painter: &egui::Painter, t: &Tokens) -> Vec<(NodeId, [
 }
 
 /// A transform box (screen corners tl, tr, br, bl): its outline when `outline`, the first `handles`
-/// corner handles and, when dimensions are shown, the size `label` under it (its box returned).
-fn transform_box(app: &FigApp, painter: &egui::Painter, q: [Pos2; 4], col: Color32, outline: bool, handles: usize, label: String) -> Option<Rect> {
+/// corner handles and, when dimensions are shown, the size `label` (if any) under it (its box returned).
+fn transform_box(
+    app: &FigApp,
+    painter: &egui::Painter,
+    q: [Pos2; 4],
+    col: Color32,
+    outline: bool,
+    handles: usize,
+    label: Option<String>,
+) -> Option<Rect> {
     if outline {
         quad(painter, q, stroke(col, 1.0));
     }
@@ -1192,7 +1214,7 @@ fn transform_box(app: &FigApp, painter: &egui::Painter, q: [Pos2; 4], col: Color
         painter.rect_filled(r, CornerRadius::same(1), Color32::WHITE);
         painter.rect_stroke(r, CornerRadius::same(1), stroke(col, 1.0), StrokeKind::Inside);
     }
-    if app.session.prefs.show_dimensions {
+    if let Some(label) = label.filter(|_| app.session.prefs.show_dimensions) {
         let bottom = q.iter().map(|p| p.y).fold(f32::MIN, f32::max);
         let cx = q.iter().map(|p| p.x).sum::<f32>() / 4.0;
         return Some(pill(painter, pos2(cx, bottom + 9.0), Align2::CENTER_TOP, label, col));

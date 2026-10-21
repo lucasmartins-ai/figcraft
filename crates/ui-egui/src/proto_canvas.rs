@@ -295,6 +295,26 @@ pub fn input(app: &mut FigApp, ui: &egui::Ui, resp: &egui::Response) -> bool {
 mod tests {
     use super::*;
 
+    /// A press on a connection handle takes the keyboard from the Pages list, as a press anywhere
+    /// else on the canvas does, so a later Delete can't take the page (#859).
+    #[test]
+    fn a_press_on_a_connection_handle_ends_the_pages_list_focus() {
+        let mut s = figcraft_engine::Session::new();
+        let a = s.execute("frame.create", &json!({"x": 0, "y": 0, "width": 200, "height": 150})).unwrap();
+        let a = crate::present_tests::id(&a);
+        s.execute("select.set", &json!({"ids": [a]})).unwrap();
+        let mut u = crate::present_tests::Ui::new(s);
+        u.app.ui.right_tab = RightTab::Prototype;
+        u.run("view.zoomSelection", json!({}));
+        u.frames(2, Vec::new);
+        u.app.ui.pages_focus = u.app.session.ds().ok().map(|d| d.uid);
+        let doc = u.app.session.doc().unwrap().clone();
+        let (_, at) = *handles(&u.app, &doc, &[a]).first().unwrap();
+        u.button(at, true);
+        assert!(u.app.ui.pages_focus.is_none());
+        u.button(at, false);
+    }
+
     #[test]
     fn curves_leave_the_facing_side() {
         let a = Rect::from_min_size(pos2(0.0, 0.0), vec2(50.0, 20.0));

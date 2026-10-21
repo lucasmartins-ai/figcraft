@@ -86,6 +86,10 @@ pub fn parse_color(s: &str) -> Option<(u8, u8, u8)> {
     Some((byte(0)?, byte(2)?, byte(4)?))
 }
 
+/// Why a join failed when a message from the host is over this app's size limit (`{mb}`: the
+/// limit in MB). The UI translates it.
+pub const TOO_LARGE_TO_JOIN: &str = "This file is too large to join here (up to {mb} MB)";
+
 /// The connection to a live session.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "state")]
