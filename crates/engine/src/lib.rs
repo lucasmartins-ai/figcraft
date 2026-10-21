@@ -63,6 +63,7 @@ pub mod templates;
 pub mod textedit;
 pub mod textfit;
 pub mod textpreview;
+pub mod token_roles;
 pub mod tools;
 pub mod vectoredit;
 pub mod widgets;

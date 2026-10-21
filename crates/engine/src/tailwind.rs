@@ -11,91 +11,24 @@ use figcraft_doc::*;
 
 use crate::codegen::{CodeLang, Ctx, Markup, css_var_name, css_var_of, num};
 use crate::component_codegen::component_type_name;
+use crate::token_roles::{NumberRole, Roles};
 
 /// The breakpoint desktop classes sit behind in responsive code.
 // ponytail: one breakpoint (lg = 1024px); a tablet frame would need a second pass and `md:`.
 const BREAKPOINT: &str = "lg";
 
-/// What a number variable measures, from how layers use it (else its scopes): it picks the theme
-/// namespace and whether the CSS value takes a unit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NumberRole {
-    Radius,
-    FontSize,
-    Spacing,
-    /// Another length (stroke, line height, letter spacing, effects): pixels, no namespace.
-    Length,
-    /// Opacity or font weight: no unit.
-    Unitless,
-}
-
-fn role_of_field(field: &str) -> Option<NumberRole> {
-    Some(match field {
-        "cornerRadius" | "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" => NumberRole::Radius,
-        "fontSize" => NumberRole::FontSize,
-        "opacity" | "fontWeight" => NumberRole::Unitless,
-        f if f == "gap" || f == "counterAxisSpacing" || f.starts_with("padding") || f == "width" || f == "height" => NumberRole::Spacing,
-        f if f.starts_with("min") || f.starts_with("max") => NumberRole::Spacing,
-        "strokeWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent" => NumberRole::Length,
-        _ => return None,
-    })
-}
-
-fn role_of_scope(scope: &str) -> Option<NumberRole> {
-    Some(match scope {
-        "CORNER_RADIUS" => NumberRole::Radius,
-        "FONT_SIZE" => NumberRole::FontSize,
-        "GAP" | "WIDTH_HEIGHT" => NumberRole::Spacing,
-        "OPACITY" | "FONT_WEIGHT" => NumberRole::Unitless,
-        "STROKE_FLOAT" | "EFFECT_FLOAT" | "LINE_HEIGHT" | "LETTER_SPACING" | "PARAGRAPH_SPACING" | "PARAGRAPH_INDENT" => NumberRole::Length,
-        _ => return None,
-    })
-}
-
 /// The roles and Tailwind theme names of a file's variables, computed once per export so code
 /// and the `@theme` block always agree.
 #[derive(Default)]
 pub struct Theme {
-    roles: HashMap<VariableId, NumberRole>,
+    roles: Roles,
     names: HashMap<VariableId, String>,
 }
 
 impl Theme {
     pub fn new(doc: &Document) -> Self {
         let vars = &doc.variables.variables;
-        // A number's role: the first layer field bound to it, else its scopes.
-        let mut roles: HashMap<VariableId, NumberRole> = HashMap::new();
-        for n in doc.nodes() {
-            for (field, id) in &n.bound {
-                if let Some(r) = role_of_field(field) {
-                    roles.entry(id.clone()).or_insert(r);
-                }
-            }
-        }
-        for v in vars.iter().filter(|v| v.kind == VariableType::Number) {
-            if let Some(r) = v.scopes.as_ref().and_then(|s| s.iter().find_map(|s| role_of_scope(s))) {
-                roles.entry(v.id.clone()).or_insert(r);
-            }
-        }
-        // An alias target with no role of its own takes the role of the variables that read it
-        // (an opacity alias makes its target unitless too).
-        for _ in 0..8 {
-            let mut changed = false;
-            for v in vars {
-                let Some(r) = roles.get(&v.id).copied() else { continue };
-                for value in v.values.values() {
-                    if let VariableValue::Alias(target) = value
-                        && !roles.contains_key(target)
-                    {
-                        roles.insert(target.clone(), r);
-                        changed = true;
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        let roles = Roles::new(doc);
         let mut t = Theme { roles, names: HashMap::new() };
         // Short names ("accent") where they are unique, the full path ("palette-accent") where two
         // variables would share one, and a numeric suffix as a last resort.
@@ -113,12 +46,7 @@ impl Theme {
 
     /// What a number variable measures; a number nothing tells about is a length.
     pub fn role(&self, v: &Variable) -> NumberRole {
-        self.roles.get(&v.id).copied().unwrap_or(NumberRole::Length)
-    }
-
-    /// A number variable's CSS value: pixels for lengths, bare for opacity and font weight.
-    pub fn number_css(&self, v: &Variable, x: f64) -> String {
-        if self.role(v) == NumberRole::Unitless { num(x) } else { format!("{}px", num(x)) }
+        self.roles.role(v)
     }
 
     /// The theme variable for `v`, unique in the file (see [`Theme::new`]).
