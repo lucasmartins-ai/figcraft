@@ -518,6 +518,9 @@ pub struct Node {
     /// Dev resources: links for developers (docs, code, tickets…), in the order they were added.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dev_resources: Vec<DevResource>,
+    /// On a board: what this object is (a sticky note, a connector, a stamp…).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<crate::BoardItem>,
 }
 
 pub(crate) fn yes() -> bool {
@@ -628,6 +631,7 @@ impl Node {
             annotations: Vec::new(),
             code_links: Vec::new(),
             dev_resources: Vec::new(),
+            board: None,
         }
     }
 
@@ -651,6 +655,11 @@ impl Node {
 
     pub fn is_page(&self) -> bool {
         matches!(self.kind, NodeKind::Page { .. })
+    }
+
+    /// A board object selected and moved as a whole (a sticky, a shape with text, a stamp…).
+    pub fn is_board_atom(&self) -> bool {
+        self.board.as_ref().is_some_and(crate::BoardItem::is_atom)
     }
 
     /// A section whose contents are hidden: only its name and outline show; its children are

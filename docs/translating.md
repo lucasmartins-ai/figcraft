@@ -91,13 +91,9 @@ picker leaves Georgian out. A new CJK or other non-Latin language also needs its
    three forms. Czech's CLDR `many` applies only to decimals; `trn` takes integer counts.
    Polish uses `one` for 1 only, `few` like Russian (2–4, 22–24… except 12–14) and `many` for
    the other integers, including 0 and 21 (e.g. `{n} warstwa`, `{n} warstwy`, `{n} warstw`).
-4. To require full coverage, add the code to `COMPLETE` in
-   [`crates/ui-egui/src/i18n_tests.rs`](../crates/ui-egui/src/i18n_tests.rs). Every later PR that
-   adds a string then has to translate it into each complete language, so only Spanish is there:
-   French, German, Brazilian Portuguese, Japanese, Korean, Simplified Chinese, Czech, Indonesian and
-   Georgian are registered as drafts, Russian and Turkish are reviewed but not required, and a string added
-   later shows English in them until it is translated. To list what a draft lacks,
-   add its code to `COMPLETE` locally and run the check.
+4. A string added later shows English in every language until someone translates it; a missing
+   translation never fails a check or a build. `cargo xtask i18n-report` lists what each language
+   lacks (UI strings, command labels, menu wordings), and `cargo xtask ci` prints the same list.
 5. Run the check and look at the panels in the app (longer words must fit the right panel):
 
        cargo test -p figcraft-ui-egui i18n
@@ -106,9 +102,9 @@ picker leaves Georgian out. A new CJK or other non-Latin language also needs its
    with "…" and show it in full on hover; elsewhere, look for clipped or wrapped text.
 
 The check fails on keys the code uses that `en.toml` lacks (it prints the lines to paste), keys no
-code uses, unknown command ids, placeholders that don't match English, and, for complete languages,
-anything untranslated. Machine-drafted catalogs stay marked as drafts until a native speaker has
-reviewed them; a reviewed catalog stays a draft until a maintainer approves it (its `status` says which).
+code uses, unknown command ids and placeholders that don't match English. Machine-drafted catalogs
+stay marked as drafts until a native speaker has reviewed them; a reviewed catalog stays a draft
+until a maintainer approves it (its `status` says which).
 
 ## Adding strings in code
 
@@ -116,11 +112,11 @@ Wrap every string a user sees or a screen reader hears: `tr` for plain text, `tr
 placeholders, `trn` for counts, `tr_noop` for literals in `const` tables that are looked up later
 with `tr(label)`. The key must be a string literal as the first argument (the check reads the
 source). Don't wrap ids, command ids, JSON, log messages, file extensions or document content. Then
-add the key to `en.toml` and to each complete language (Spanish and Russian); the drafts may follow later.
+add the key to `en.toml`; translations may follow later.
 
 Labels from the engine and document crates (tool names, blend modes, easing curves…) are looked up
 at display with `tr(x.label())`; they are listed in `dynamic_labels` in `i18n_tests.rs`.
 
 The importers' fixed notes (the string literals passed to `warn` in `crates/format/src/fig` and
 `crates/format/src/rest`) are keys too: the import report shows them in the UI language, so a new
-note goes into `en.toml` and each complete language. Notes built with `format!` show in English.
+note goes into `en.toml`. Notes built with `format!` show in English.

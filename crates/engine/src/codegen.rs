@@ -244,7 +244,7 @@ impl<'a> Ctx<'a> {
             .collect()
     }
 
-    fn too_deep(&self, depth: usize) -> bool {
+    pub(crate) fn too_deep(&self, depth: usize) -> bool {
         depth > self.base + MAX_DEPTH
     }
 

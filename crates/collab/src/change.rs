@@ -181,6 +181,7 @@ node_props! {
     Annotations => annotations,
     CodeLinks => code_links,
     DevResources => dev_resources,
+    Board => board,
 }
 
 /// A document-level property. Lists of entries with ids (styles, comments, variable collections,
@@ -219,6 +220,8 @@ pub enum DocProp {
     Variables,
     /// Variable ids in order.
     VariableOrder,
+    /// A design file or a board.
+    Kind,
 }
 
 /// A document-level entry, by id.
