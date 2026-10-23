@@ -25,16 +25,28 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 /// The layout of `t` with every run's font size times `k`, at `width`: (line count, height,
-/// words on the last line).
-fn measure(t: &TextData, k: f64, width: f64) -> (usize, f64, usize) {
+/// whether the last line is an orphan: one word, wrapped from the line above rather than a
+/// paragraph of its own after a hard break, which no size can fix).
+fn measure(t: &TextData, k: f64, width: f64) -> (usize, f64, bool) {
     let mut t = t.clone();
     let n = t.char_count();
     t.restyle(0, n, |s| s.font_size = (s.font_size * k).clamp(1.0, 5000.0));
     let l = figcraft_text::layout(&t, Some(width), None);
-    let last = l.lines.last().map_or(0, |line| {
-        t.characters.chars().skip(line.char_start).take(line.char_end.saturating_sub(line.char_start)).collect::<String>().split_whitespace().count()
-    });
-    (l.lines.len(), l.height, last)
+    let orphan = l.lines.len() > 1
+        && l.lines.last().is_some_and(|line| {
+            let mut before = t.characters.chars().skip(line.char_start.saturating_sub(1));
+            let wrapped = line.char_start > 0 && before.next() != Some('\n');
+            wrapped
+                && t.characters
+                    .chars()
+                    .skip(line.char_start)
+                    .take(line.char_end.saturating_sub(line.char_start))
+                    .collect::<String>()
+                    .split_whitespace()
+                    .count()
+                    == 1
+        });
+    (l.lines.len(), l.height, orphan)
 }
 
 fn fit(s: &mut Session, p: &Value) -> Result<Value> {
@@ -52,7 +64,7 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
         let (width, height_cap) = (n.width, if t.auto_resize == TextAutoResize::None { n.height } else { f64::INFINITY });
         let size = t.style.font_size.max(1.0);
         let min = num(p, "minSize").filter(|v| v.is_finite() && *v >= 1.0).unwrap_or(size * 0.6).min(size);
-        let fits = |m: (usize, f64, usize)| max_lines.is_none_or(|ml| m.0 <= ml) && m.1 <= height_cap + 0.5;
+        let fits = |m: (usize, f64, bool)| max_lines.is_none_or(|ml| m.0 <= ml) && m.1 <= height_cap + 0.5;
         // The largest factor in [min/size, 1] that fits: binary search to a tenth of a pixel.
         let (mut lo, mut hi) = (min / size, 1.0);
         let k = if fits(measure(t, 1.0, width)) {
@@ -73,10 +85,11 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
             }
             lo
         };
-        // Whole-tenth sizes read better in the panel.
-        let mut k = ((size * k * 10.0).floor() / 10.0) / size;
+        // Whole-tenth sizes read better in the panel, but never below the floor; text that fits
+        // keeps its exact size.
+        let mut k = if k < 1.0 { ((size * k * 10.0).floor() / 10.0).max(min) / size } else { 1.0 };
         let mut m = measure(t, k, width);
-        let mut orphan = orphans && m.0 > 1 && m.2 == 1;
+        let mut orphan = orphans && m.2;
         let mut nbsp = false;
         if orphan {
             // Up to 8% smaller (not below the floor) may pull a word down to the last line.
@@ -84,7 +97,7 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
             while orphan && tries < 8 && size * k * 0.99 >= min {
                 k *= 0.99;
                 m = measure(t, k, width);
-                orphan = m.0 > 1 && m.2 == 1;
+                orphan = m.2;
                 tries += 1;
             }
             if orphan {
@@ -94,9 +107,17 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
         let n = doc.get_mut(id)?;
         let NodeKind::Text(t) = &mut n.kind else { continue };
         let count = t.char_count();
-        t.restyle(0, count, |st| st.font_size = ((st.font_size * k * 10.0).round() / 10.0).clamp(1.0, 5000.0));
+        if k < 1.0 {
+            // Each run rounds to a tenth, but not below its share of the floor.
+            t.restyle(0, count, |st| {
+                let floor = st.font_size * min / size;
+                st.font_size = ((st.font_size * k * 10.0).round() / 10.0).max(floor).clamp(1.0, 5000.0)
+            });
+        }
         // Same character count, so style runs keep their ranges.
-        let joined = if nbsp && let Some(i) = t.characters.trim_end().rfind(' ') {
+        // Only inside the last paragraph: a space before a hard break joins nothing on the last line.
+        let para = t.characters.rfind('\n').map_or(0, |i| i + 1);
+        let joined = if nbsp && let Some(i) = t.characters.trim_end().get(para..).and_then(|p| p.rfind(' ')).map(|i| para + i) {
             t.characters.replace_range(i..i + 1, "\u{a0}");
             Some(i)
         } else {
@@ -109,7 +130,7 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
             after = measure(t, 1.0, width);
         }
         // Reported from the final text (rounded sizes, the no-break space), which callers rely on.
-        out.push(json!({"id": id.0, "fontSize": (t.style.font_size * 10.0).round() / 10.0, "lines": after.0, "fits": fits(after), "orphan": orphans && after.0 > 1 && after.2 == 1}));
+        out.push(json!({"id": id.0, "fontSize": (t.style.font_size * 10.0).round() / 10.0, "lines": after.0, "fits": fits(after), "orphan": orphans && after.2}));
     }
     Ok(json!({"fitted": out}))
 }

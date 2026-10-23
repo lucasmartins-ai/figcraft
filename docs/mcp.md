@@ -332,12 +332,13 @@ tips; headless, it only sets the preference.
 
 ### Filling copies with data
 
-`data.fill {id, rows, gap?, dir?, format?, scale?}` repeats a frame once per row (a carousel, a set
+`data.fill {id, rows, gap?, formats?, dir?, format?, scale?}` repeats a frame once per row (a carousel, a set
 of posts, a card per item) in one undo step: each key of a row names layers in the copy, and a
 string (or number) sets their text, `{text?, fill?, visible?}` sets more; `name` names the copy
 (default "<frame> <n>"). Copies go in a row to the right, `gap` apart (default 100). With `dir`, each
 copy is exported there as `<name>.<format>` (png by default) after the edits land. Returns `{ids,
-missing (keys no layer is named), files?}`.
+missing (keys no layer is named), files?, errors?}`. `errors` lists the exports that failed as
+`[{id, path, error}]`; the copies stay, and the files that were written are in `files`.
 
 Copy that changes length per row can size itself: `{"Headline": {"text": "…", "fit": {"maxLines": 2}}}` runs
 `text.fit` on those layers after the text is set.
@@ -351,7 +352,8 @@ position children keep their place).
 `text.fit {ids?, maxLines?, minSize?, orphans?}` gives a text layer with a fixed width (auto height or fixed size)
 the largest font size, down to `minSize` (default 60% of the current), at which it stays within `maxLines` lines
 and its box's height. Every style run scales by the same factor. A one-word last line (an orphan) is avoided by
-shrinking up to 8% more, else by keeping the last two words together with a no-break space. Text never grows.
+shrinking up to 8% more, else by keeping the last two words together with a no-break space. A one-word paragraph after a hard line break is not an orphan. Text never
+grows, text that already fits keeps its exact size, and sizes round to a tenth without going below `minSize`.
 Returns `{fitted: [{id, fontSize, lines, fits, orphan}]}`. Use case: a carousel slide "Lighthouse 100. Loads in under
 1s." at 96px broke into three lines with "1s." alone; with `fit: {maxLines: 3}` it is two balanced lines.
 

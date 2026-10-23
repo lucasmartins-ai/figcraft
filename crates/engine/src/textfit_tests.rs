@@ -102,3 +102,30 @@ fn review_fits_is_reported_from_the_final_text() {
         assert_eq!(f["fits"].as_bool().unwrap(), real as f64 <= lines, "{r}");
     }
 }
+
+#[test]
+fn review_sizes_off_the_tenth_grid_keep_their_size_and_floor() {
+    let mut s = Session::new();
+    // Fits already: 14.25px stays 14.25px, not 14.2 or 14.3.
+    let t = headline(&mut s, "Curto", 600.0);
+    ex(&mut s, "node.set", json!({"id": t, "props": {"fontSize": 14.25}}));
+    ex(&mut s, "text.fit", json!({"ids": [t], "maxLines": 1}));
+    assert_eq!(size(&s, t), 14.25);
+    // Can't fit: it stops at the floor, not a tenth below it.
+    let long = headline(&mut s, "Seu site e seu WhatsApp com IA, prontos em 7 dias", 200.0);
+    let r = ex(&mut s, "text.fit", json!({"ids": [long], "maxLines": 1, "minSize": 12.34}));
+    assert_eq!(r["fitted"][0]["fits"], false, "{r}");
+    assert!(size(&s, long) >= 12.34, "{}", size(&s, long));
+}
+
+#[test]
+fn review_a_one_word_paragraph_is_not_an_orphan() {
+    let mut s = Session::new();
+    let t = headline(&mut s, "Two words\nOne", 600.0);
+    let r = ex(&mut s, "text.fit", json!({"ids": [t]}));
+    assert_eq!(r["fitted"][0]["orphan"], false, "{r}");
+    assert_eq!(size(&s, t), 64.0, "nothing to fix, so nothing shrinks");
+    let doc = s.doc().unwrap();
+    let NodeKind::Text(tx) = &doc.node(t).unwrap().kind else { panic!() };
+    assert_eq!(tx.characters, "Two words\nOne", "no no-break space in an earlier paragraph");
+}
