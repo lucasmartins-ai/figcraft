@@ -1370,7 +1370,7 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   `<Button variant="outline">{"See examples"}</Button>`, with each import once at the top. A design
   system mapped to shadcn/ui this way exports pages that use the project's own components. Bound variables become theme
   utilities (`bg-accent`, `rounded-card`, `text-muted`) that `variable.export {format: "tailwind"}`
-  declares: `@import "tailwindcss";` and an `@theme` block named by namespace (`--color-*`,
+  declares: `@import "tailwindcss";` and an `@theme static` block (every token is emitted, also those only read through `var()`) named by namespace (`--color-*`,
   `--radius-*`, `--text-*`, `--spacing-*`, `--font-*`; a number's namespace and unit come from what
   layers bind it to), other modes on `[data-<collection>="<mode>"]`. With `mobile: <frame id>` (the
   same layer names, mobile layout) the code is mobile first: the mobile frame's classes, the

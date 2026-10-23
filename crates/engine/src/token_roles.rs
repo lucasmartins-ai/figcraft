@@ -65,8 +65,9 @@ impl Roles {
                 roles.entry(v.id.clone()).or_insert(r);
             }
         }
-        // Alias chains are short; a few rounds reach their ends.
-        for _ in 0..8 {
+        // Until a pass adds nothing: each pass adds a role or stops, so this ends within one pass
+        // per variable, however long a chain is.
+        loop {
             let mut changed = false;
             for v in vars {
                 let Some(r) = roles.get(&v.id).copied() else { continue };

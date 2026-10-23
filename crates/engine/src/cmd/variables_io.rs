@@ -18,7 +18,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "variable.export",
             "Export variables",
-            "{collections? [ids or names; default every collection of this file, not library copies], format? (json (default): the local variables JSON that variable.import reads | css: custom properties, the default mode on :root and each other mode on [data-<collection>=\"<mode>\"]; lengths in px | tailwind: a Tailwind CSS v4 stylesheet, the default mode as an @theme block named the way inspect.code's tailwind utilities read them: --color-*, --radius-*, --text-*, --spacing-*, --font-*), path? (write it there)}  → {text}, or {path} when written",
+            "{collections? [ids or names; default every collection of this file, not library copies], format? (json (default): the local variables JSON that variable.import reads | css: custom properties, the default mode on :root and each other mode on [data-<collection>=\"<mode>\"]; numbers in px unless layers or scopes use them as opacity or font weight | tailwind: a Tailwind CSS v4 stylesheet, the default mode as an @theme block named the way inspect.code's tailwind utilities read them: --color-*, --radius-*, --text-*, --spacing-*, --font-*, unique per file), path? (write it there)}  → {text}, or {path} when written",
             false,
             export
         ),
@@ -65,19 +65,24 @@ fn css_safe(text: &str) -> String {
 }
 
 /// Each collection's variables as custom properties (named as generated code names them): the
-/// default mode's values on `:root` (for Tailwind, in an `@theme` block with theme names), every
-/// other mode's on `[data-<collection>="<mode>"]`; aliases are `var(--name)`, number lengths px.
+/// default mode's values on `:root`, every other mode's on `[data-<collection>="<mode>"]`;
+/// aliases are `var(--name)`.
 fn css(doc: &Document, colls: &[&Collection], tailwind: bool) -> String {
     let vars = &doc.variables;
+    // Tailwind theme names, unique per file and the same ones page code reads.
     let theme = crate::tailwind::Theme::new(doc);
-    let roles = crate::token_roles::Roles::new(doc);
     let name = |v: &Variable| if tailwind { theme.name(v) } else { css_var_of(v) };
+    // Lengths need a unit where CSS reads them (`border-radius: var(--radius)`); opacity and
+    // font weight don't.
+    let roles = crate::token_roles::Roles::new(doc);
     let mut out = if tailwind { "@import \"tailwindcss\";\n\n".to_string() } else { String::new() };
     for c in colls {
         let attr = css_var_name(&c.name);
         for (i, m) in c.modes.iter().enumerate() {
             let sel = match i {
-                0 if tailwind => "@theme".to_string(),
+                // `static`: Tailwind otherwise drops theme variables no utility uses, and pages also
+                // read them through `var()` and `(--name)` utilities.
+                0 if tailwind => "@theme static".to_string(),
                 0 => ":root".to_string(),
                 _ => format!("[data-{}=\"{}\"]", attr.trim_start_matches('-'), css_safe(&m.name)),
             };
@@ -85,7 +90,8 @@ fn css(doc: &Document, colls: &[&Collection], tailwind: bool) -> String {
             for v in vars.variables.iter().filter(|v| v.collection == c.id) {
                 let value = match v.values.get(&m.id) {
                     Some(VariableValue::Color(col)) => col.to_css(),
-                    Some(VariableValue::Number(x)) => roles.number_css(v, *x),
+                    Some(VariableValue::Number(x)) if roles.role(v) == crate::token_roles::NumberRole::Unitless => trim_num(*x),
+                    Some(VariableValue::Number(x)) => format!("{}px", trim_num(*x)),
                     Some(VariableValue::String(t)) => format!("\"{}\"", css_safe(t)),
                     Some(VariableValue::Boolean(b)) => b.to_string(),
                     Some(VariableValue::Alias(a)) => match vars.get(a) {

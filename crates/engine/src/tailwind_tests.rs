@@ -66,7 +66,7 @@ fn per_side_strokes_are_borders_on_those_sides() {
     let css = ex(&mut s, "inspect.code", json!({"id": f, "language": "css"}))["code"].as_str().unwrap_or_default().to_string();
     assert!(css.contains("border-bottom: 1px solid") && !css.contains("border:"), "{css}");
     let tw = code(&mut s, f, json!({}));
-    assert!(tw.contains("border-b ") && tw.contains("border-[#262a31]") || tw.contains("border-[#262A31]"), "{tw}");
+    assert!(tw.contains("border-b ") && (tw.contains("border-[#262a31]") || tw.contains("border-[#262A31]")), "{tw}");
     // Without per-side weights it is one border.
     ex(&mut s, "node.set", json!({"id": f, "props": {"strokeSides": null, "strokeWeight": 2}}));
     let css = ex(&mut s, "inspect.code", json!({"id": f, "language": "css"}))["code"].as_str().unwrap_or_default().to_string();
@@ -140,7 +140,7 @@ fn variables_export_with_units_and_as_a_tailwind_theme() {
     let css = ex(&mut s, "variable.export", json!({"format": "css"}))["text"].as_str().unwrap_or_default().to_string();
     assert!(css.contains("--card: 12px;") && css.contains("--fade: 0.5;"), "{css}");
     let tw = ex(&mut s, "variable.export", json!({"format": "tailwind"}))["text"].as_str().unwrap_or_default().to_string();
-    for want in ["@import \"tailwindcss\";", "@theme {", "--color-accent: #3ddc97;", "--radius-card: 12px;", "--fade: 0.5;"] {
+    for want in ["@import \"tailwindcss\";", "@theme static {", "--color-accent: #3ddc97;", "--radius-card: 12px;", "--fade: 0.5;"] {
         assert!(tw.to_lowercase().contains(&want.to_lowercase()), "{want} in {tw}");
     }
 }
@@ -192,7 +192,7 @@ fn slashed_layer_names_and_phone_widths_merge_right() {
     assert!(button.contains("self-stretch") && button.contains("lg:self-auto"), "the slashed name keeps its mobile classes: {out}");
     assert!(!out.contains("max-w-[342px] ") || out.contains("lg:max-w-[342px]"), "no phone-width cap below lg: {out}");
     assert!(out.contains("Only in the mobile frame") && out.contains("Tag"), "{out}");
-    let divider = out.lines().filter(|l| l.contains("<div") && l.contains("h-[1px]") || l.contains("h-px")).count();
+    let divider = out.lines().filter(|l| l.contains("<div") && (l.contains("h-[1px]") || l.contains("h-px"))).count();
     assert!(out.contains("w-full") && divider <= 2, "{out}");
 }
 
