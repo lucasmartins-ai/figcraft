@@ -13,6 +13,7 @@
 //! store replays such a log anyway and reports any change the snapshot lacked. A log ends at its
 //! first damaged record (a write cut short).
 
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -49,7 +50,7 @@ pub fn free_bytes(path: &Path) -> Option<u64> {
 
 /// `path` with `.tmp` added: where its next version is written first.
 pub fn temp_of(path: &Path) -> PathBuf {
-    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    let mut name = path.file_name().map(OsStr::to_os_string).unwrap_or_default();
     name.push(".tmp");
     path.with_file_name(name)
 }

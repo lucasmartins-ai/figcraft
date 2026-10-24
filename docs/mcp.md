@@ -34,6 +34,10 @@ of the window itself (`screenshot` with `window`) needs it on screen: it is then
 
 ### Confining file access
 
+The roots below belong to the **headless** side: the session `figcraft-cli mcp` runs itself, with
+no window. A server attached with `--attach` runs the commands inside the app instead, so the app
+confines them — from the flags it was started with, not from anything passed to the CLI.
+
 ```sh
 figcraft-cli mcp --automation-read-root /work/project --automation-write-root /work/project/out
 ```
@@ -144,6 +148,8 @@ Or in a project's `.mcp.json`:
   there is none, so they are page coordinates then). Groups and boolean groups have no coordinate
   space of their own: a layer in a group is placed in the frame (or on the page) the group is in.
   `inspect_document` reports `x`/`y` the same way, plus `absoluteBounds` in page coordinates.
+  In `props`, `fill` and `stroke` also accept `"none"` (either case) or `null` as no paint, the
+  same as an empty `fills`/`strokes` list, so an outline-only shape can be made in one call.
 - Frames, groups, sections and masks: drawing a frame or section with the `pointer` tool around
   layers puts those fully inside it in it; sections go only on the page or in sections (moves,
   drags, pastes and new sections elsewhere are refused or land on the page); resizing a section
@@ -190,6 +196,12 @@ Or in a project's `.mcp.json`:
     the CSS `fr` unit: a track never gets less than its content (a fixed-size child bigger than
     its share keeps it; the other `fr` tracks share the rest). `inspect` reports a grid child's
     resolved `gridCell`.
+- Layer order: `node.reparent {ids?, parent, index?}` moves layers into `parent` (keeping their place
+  on the canvas, or taking their place in its auto layout flow) and `node.reorder {id, index}` moves
+  one within its parent. `index` counts the parent's children bottom first (in auto layout, the
+  first in the flow) and is where the (first) moved layer ends up after the move, in the same parent
+  or a new one; several layers land together in their stacking order. No `index`, or one past the
+  end, puts them on top (last in the flow).
 - **Every menu action is a command** (`list_commands`), and most commands act on `ids` when given,
   else on the selection. New layers become the selection.
 - Colours are `"#RRGGBB"` or `"#RRGGBBAA"`. Inside fills and strokes, `color` may also be a hex
@@ -267,9 +279,11 @@ Or in a project's `.mcp.json`:
 - **Styles stay true to their layers**: editing a styled fill, stroke, effect or layout grid list
   (`node.set`, `fill.set`, `fill.add`, a bound variable…) unlinks that style (`styles.fill` etc. go
   `null`), so a later `style.update` doesn't overwrite the edit; `style.apply` replaces variables
-  bound to what the style sets; a text style goes on text layers only. Names are trimmed per `/`
-  folder part. `style.move {styles, before?, folder?}` reorders (and with `folder`, renames into it),
-  `style.duplicate {style}` adds "<name> copy" right below, `style.renameFolder {folder, name}`.
+  bound to what the style sets; a text style goes on text layers only. In one call, a style link
+  (`fillStyle`, `textStyle`…) wins over values it sets; set a deviation in a later call, which
+  unlinks it. Names are trimmed per `/` folder part. `style.move {styles, before?, folder?}`
+  reorders (and with `folder`, renames into it), `style.duplicate {style}` adds "<name> copy" right
+  below, `style.renameFolder {folder, name}`.
 - **Variables**: `variable.bind` refuses a variable of a type the field doesn't take (a colour on
   `width`); scopes only filter pickers. `variable.delete` / `variable.deleteCollection` unbind the
   layers using them (they keep their last value) and give aliases to them their values. An
@@ -533,6 +547,17 @@ its proportion). A path or point set that draws nothing is refused instead of ma
 0×0 layer, as is a size on an axis the geometry has none of (except 0, such as a horizontal line's
 height) and a size of 0 or less on an axis it has, which would flatten it.
 
+`node.set {path}` (or `set_properties`) replaces a vector's geometry with new SVG path data and
+keeps the layer: its id, name, place in the layer list, paints, effects, styles, variable bindings
+and constraints. The path is read as `vector.create` reads it, and `width`/`height` in the same call
+scale it the same way. The path's own box goes at the layer's current x/y (rotation and flips
+stay); with `x`/`y` in the same call it goes at `x` + its left edge and `y` + its top, as
+`vector.create` places it. Points' own settings (per-point corner radius, caps, joins) go with the
+old geometry. On several layers, layers that aren't vectors are skipped with a warning; on a
+single one, or when none is a vector, the call is refused (convert shapes with
+`vector.edit.begin` or Flatten first). A layer inside an instance is refused too: its geometry
+comes from its main component, so edit that or detach the instance. Undo brings the old path back.
+
 Vector edit mode is driven with `run_command` (or `pointer`/`key` for gestures):
 `vector.edit.begin {id? | ids?}` (default the selection; converts shapes to vectors; several layers
 are edited at once, the first active; `key` Enter with shapes selected does the same),
@@ -669,7 +694,8 @@ rotation?, color?, width?, height?, responsive?}` (`None`, `iPhone 16`, `iPhone 
 `Black`, `White`, `Pink`, `Teal`, `Blue` for the iPhone 16 (an error lists them), `""` for the
 default; `width` / `height` set the custom size's screen, 1–10000 points, and pick `Custom size`,
 which is a bare screen without a body). On a device the presented frame is sized to the device's
-screen: what doesn't fit is clipped, or scrolls when the frame's `overflow` allows it, while `fixed`
+screen: a frame bigger than the screen scrolls through its whole size whatever its `overflow`, content
+past the frame's own edges scrolls only as its `overflow` allows (else it's clipped), and `fixed`
 layers stay on screen (pinned to the edges their constraints name). With `responsive: true` (saved
 in the file) the presented frame is instead resized to the device's screen, or without a device to
 the presenter's window at 100%, and its constraints and auto layout respond as when it is resized
@@ -798,6 +824,14 @@ most when it can't be reached).
   moves the chosen variant there, `{name, index}` reorders variant properties (the variants'
   names follow). `component.properties` on a set reports `conflicts`: variants sharing one
   combination of values.
+- **Boolean properties**: on the main component, a boolean property's value is the visibility of
+  the layers bound to it. `component.addProperty {type: "boolean", default, layer}`,
+  `component.bindProperty {field: "visible"}` and `component.editProperty {name, default}` show or
+  hide the main's bound layers to match the default (without `default`, `addProperty` takes the
+  bound layer's visibility). Showing or hiding a bound layer on the main sets the default, and the
+  property's other bound layers (in every variant of a set) follow. New instances start from the
+  default; existing instances keep the values they have. Files open as saved: a main whose bound
+  layer disagrees with the default stays that way until one of them is edited.
 - `component.pushChanges {id?}` copies the instance's overrides into its main (from a layer of a
   nested instance too: always into the outer instance's main).
 
@@ -805,7 +839,9 @@ most when it can't be reached).
 
 - `instance.swap {ids?, component}` shows another component in the instances (overrides on layers
   with matching names stay; property values with the same names too). Nested instances can be
-  swapped on their own (an override of the instance they're in).
+  swapped on their own (an override of the instance they're in); a swapped nested instance keeps
+  what its outer main overrode on matching layers as its own, so later edits of those in the main
+  don't reach it.
 - `instance.swapAt {component, x, y}` swaps the instance at a page point: of the instances under
   it (innermost first), the first showing a variant of the same component set, else the innermost
   (never one inside the dropped component); only text layers keep their overrides. The Assets
@@ -1470,6 +1506,22 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   are clipped to 200 characters; a layer holds at most 32 links. Links are data: never fetched or
   opened by the engine (the app opens one when it is clicked). `get_node` and `inspect_document`
   list them as `devResources`; the Inspect tab lists, adds, edits and removes them.
+- **Measurements kept on the canvas:** distances a developer leaves on the canvas for everyone.
+  `devMode.addMeasurement {from? (default the first selected layer), to?, side?}` → `{from, index,
+  lines}` places one between `from` and `to` (a layer on the same page), along one side of `from`
+  (`side`: `top`, `right`, `bottom` or `left`: that side's length) or, with neither, to the layer
+  around `from`; `devMode.removeMeasurement {from?, index?}` → `{removed}` (no index: every one
+  starting from the layer); both undoable. `devMode.measurements {page?, id?}` → `[{from, fromName,
+  index, to?, toName?, side?, labels, lines: [{x0, y0, x1, y1, label, dashed}]}]` lists those on a
+  page (default the current one; `id`: only those from or to that layer), with their lines in page
+  space measured from the layers' current bounds, so they follow the layers. A measurement is
+  stored on the layer it starts from (`get_node` lists them as `measurements: [{to} | {side}]`),
+  saved with the file and synced; the same two layers are measured once (either way round), a
+  layer starts at most 64. One whose other layer was deleted or moved to another page isn't listed
+  or drawn (an undo brings it back); a copy keeps the side measurements and those to layers copied
+  with it. In the app, Dev Mode draws them with the hover redlines, and the Inspect tab lists them
+  (with nothing selected, every one on the page), selects a measurement's layer on a click, removes
+  one with −, and places new ones from its Add measurement menu.
 - **Annotations:** notes for developers on any layer, each with optional pinned properties that
   Dev Mode shows with their current values (and the style or variable behind them).
   `annotation.add {id?, label?, properties?}` (a note, pinned properties or both; returns `{id,
@@ -1506,8 +1558,8 @@ permissions: without it nothing is downloaded); `plugin.directory.publish {path 
   button to open it in the focus view). In the app's Dev Mode the canvas only inspects: presses
   select (and pan, and comment), never move, resize, draw or edit text and vectors, and the menus
   and shortcuts refuse commands that edit the design (Dev Mode's own annotations, statuses, dev
-  resources, code connections and comments still work); choosing a drawing tool in the toolbar
-  goes back to the design. Commands sent over MCP or the control channel aren't affected.
+  resources, measurements, code connections and comments still work); choosing a drawing tool in
+  the toolbar goes back to the design, and the layers panel only selects and expands. Commands sent over MCP or the control channel aren't affected.
 - **Compare changes:** when a layer marked Ready for dev first changes (it turns "Changed"), the
   file keeps a copy of it and everything in it as it was just before that edit (saved in the
   `.figcraft` file only while there is a change; resolving the change, marking it again, another

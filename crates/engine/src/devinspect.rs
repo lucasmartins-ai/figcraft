@@ -219,14 +219,16 @@ pub struct DevItem {
 }
 
 /// Whether Dev Mode runs command `id` from the menus and shortcuts: commands that don't edit the
-/// document, and Dev Mode's own edits (annotations, statuses, dev resources, code connections,
-/// comments). Choosing a tool other than moving around and commenting is refused too, and so is
-/// Revert to saved, which isn't an undo step but throws the design's unsaved edits away.
+/// document, and Dev Mode's own edits (annotations, statuses, dev resources, measurements, code
+/// connections, comments). Choosing a tool other than moving around and commenting is refused too,
+/// and so is Revert to saved, which isn't an undo step but throws the design's unsaved edits away.
 pub fn dev_mode_allows(id: &str) -> bool {
-    const OWN: [&str; 5] = ["annotation.", "dev.", "devResource.", "codeConnect.", "comment."];
+    const OWN: [&str; 6] = ["annotation.", "dev.", "devMode.", "devResource.", "codeConnect.", "comment."];
+    // Edits recorded as one grouped undo step, so their spec says no history of its own.
+    const GROUPED: [&str; 1] = ["data.fill"];
     match id.strip_prefix("tool.") {
         Some(t) => matches!(t, "move" | "hand" | "comment"),
-        None if id == "file.revert" => false,
+        None if id == "file.revert" || GROUPED.contains(&id) => false,
         None => OWN.iter().any(|p| id.starts_with(p)) || crate::cmd::find_command(id).is_none_or(|c| !c.history),
     }
 }

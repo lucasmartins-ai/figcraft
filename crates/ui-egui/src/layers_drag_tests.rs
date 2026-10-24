@@ -165,3 +165,26 @@ fn dropping_layers_on_another_page_moves_them_there() {
     let doc = u.app.session.doc().unwrap();
     assert_eq!(doc.ancestors(rect).last().copied(), Some(p2), "moved to page 2");
 }
+
+#[test]
+fn dropping_a_layer_one_place_over_moves_it_one_place() {
+    // #992: the panel drops on a gap between rows; the layer ends up in that gap.
+    let mut s = Session::new();
+    let rect =
+        |s: &mut Session, x: i32| id(s.execute("node.create", &json!({"type": "rectangle", "x": x, "y": 0, "width": 10, "height": 10})).unwrap());
+    let (a, b, c) = (rect(&mut s, 0), rect(&mut s, 20), rect(&mut s, 40));
+    s.execute("select.none", &json!({})).unwrap();
+    let page = s.page().unwrap();
+    let mut u = Ui::new(s);
+    let kids = |u: &Ui| u.app.session.doc().unwrap().node(page).unwrap().children.clone();
+    // The list shows c, b, a top to bottom: `a` dragged onto the top edge of `b` goes just above it.
+    let (from, to) = (u.row_at(a), u.row_at(b) - vec2(0.0, 12.0));
+    u.drag_to(from, to);
+    u.button(to, false);
+    assert_eq!(kids(&u), [b, a, c], "dropped between b and c");
+    // And `c` dragged onto the bottom edge of `a` goes just below it.
+    let (from, to) = (u.row_at(c), u.row_at(a) + vec2(0.0, 12.0));
+    u.drag_to(from, to);
+    u.button(to, false);
+    assert_eq!(kids(&u), [b, c, a], "dropped between a and b");
+}

@@ -3,22 +3,25 @@
 //! categories and the filter of the callouts, the handoff status of the selected frames (with the
 //! focus view and Compare changes), the list of frames and sections that are ready for dev, the
 //! focus view's bar, Connect to code (a component's link to its code component), dev resources
-//! (links for developers) and the plugins that only read the document.
+//! (links for developers), measurements kept on the canvas and the plugins that only read the
+//! document.
 
 use egui::{Align2, Color32, CornerRadius, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use figcraft_doc::{Annotation, AnnotationCategory, CodeLink, DevStatus, Document, NodeId};
 use figcraft_engine::annotations::{self, PINNABLE, Pinnable};
 use figcraft_engine::code_connect;
 use figcraft_engine::codegen::{CodeLang, code_for};
+use figcraft_engine::dev_measurements::{self, Placed};
 use figcraft_engine::devinspect::{self, DevItem, Prop};
 use figcraft_engine::plugins::Access;
+use figcraft_engine::snap::Guide;
 use figcraft_engine::{components, dev_resources};
 use serde_json::json;
 
 use crate::a11y::Tip;
 use crate::i18n::{tr, tr_noop, trf, trn};
 use crate::icons::{self, Icon};
-use crate::right::{menu_check, menu_item_with, menu_popup, prop_row, row};
+use crate::right::{menu_check, menu_item, menu_item_with, menu_popup, prop_row, row};
 use crate::theme::{ACCENT, Tokens, doc_c32, regular, semibold};
 use crate::widgets::{self, DropLead, PAD};
 use crate::{FigApp, RightTab};
@@ -94,6 +97,9 @@ pub struct DevUi {
     pub compare: Option<crate::dev_compare::CompareView>,
     annotated: Vec<NodeId>,
     annotated_key: Option<(u64, u64, NodeId)>,
+    /// The measurements kept on the current page, with their lines.
+    measured: Vec<Placed>,
+    measured_key: Option<(u64, u64, NodeId)>,
     ready: Vec<DevItem>,
     ready_key: Option<(u64, u64, usize)>,
     /// Every ready-for-dev frame (the focus view's previous / next).
@@ -188,6 +194,35 @@ pub fn draw(app: &mut FigApp, painter: &egui::Painter) {
             y = rect.max.y + 6.0;
         }
     }
+}
+
+/// Bring the current page's measurements up to date (when the document, its revision or the page
+/// changed).
+pub fn refresh_measurements(app: &mut FigApp) {
+    let Ok(ds) = app.session.ds() else { return };
+    let key = (ds.uid, ds.revision, ds.page);
+    if app.ui.dev.measured_key != Some(key) {
+        app.ui.dev.measured = dev_measurements::on_page(&ds.doc, ds.page);
+        app.ui.dev.measured_key = Some(key);
+    }
+}
+
+/// The lines of the measurements kept on the canvas, drawn with the hover measurements (Inspect
+/// tab only; both layers shown; the focus view's frame only).
+pub fn saved_lines(app: &FigApp) -> impl Iterator<Item = &Guide> {
+    let ds = app.session.ds().ok().filter(|_| active(app));
+    let focus = ds.and_then(figcraft_engine::DocState::focused);
+    app.ui
+        .dev
+        .measured
+        .iter()
+        .filter(move |m| {
+            ds.is_some_and(|ds| {
+                let shown = |id: NodeId| ds.doc.node(id).is_some_and(|n| n.visible);
+                shown(m.from) && m.measurement.to.is_none_or(shown) && focus.is_none_or(|f| ds.doc.is_ancestor(f, m.from))
+            })
+        })
+        .flat_map(|m| &m.lines)
 }
 
 /// One annotation as a card: its category, its note (up to six lines) and its pinned properties
@@ -285,13 +320,14 @@ pub fn code(app: &mut FigApp, ui: &Ui, id: NodeId, lang: CodeLang) -> String {
 }
 
 /// The component playground, for a selected instance, component or component set: a preview of the
-/// component and a control for each variant, boolean and text property. The values tried here
-/// change the preview and the code only (returned when any is set: the Code section shows it),
-/// never the document.
+/// component and a control for each variant, boolean, text and instance-swap property. The values
+/// tried here change the preview and the code only (returned when any is set: the Code section
+/// shows it), never the document.
 pub fn playground_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, id: NodeId, lang: CodeLang) -> Option<String> {
     figcraft_engine::playground::component_of(doc, id)?;
     let t = Tokens::get(ui.ctx());
     let Ok((uid, revision)) = app.session.ds().map(|d| (d.uid, d.revision)) else { return None };
+    let comps = crate::component_panel::local_components(app, ui, doc);
     let play = &mut app.ui.dev.playground;
     if play.target != Some(id) {
         *play = Playground { target: Some(id), ..Playground::default() };
@@ -361,7 +397,16 @@ pub fn playground_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, id: Nod
                     set = Some((name.to_string(), json!(new.chars().take(10_000).collect::<String>())));
                 }
             }),
-            // Instance swaps and slots show as the component has them.
+            "instanceSwap" => row(ui, 32.0, |ui| {
+                widgets::label(ui, name, t.text_secondary);
+                let preferred: Vec<NodeId> = p["preferred"].as_array().into_iter().flatten().filter_map(figcraft_engine::params::id_of).collect();
+                let w = ui.available_width().max(60.0);
+                if let Some(c) = crate::component_panel::swap_dropdown(ui, doc, figcraft_engine::params::id_of(value), &preferred, &comps, w, name).1
+                {
+                    set = Some((name.to_string(), json!(c.0)));
+                }
+            }),
+            // Slots show as the component has them.
             _ => {}
         }
     }
@@ -678,6 +723,97 @@ pub fn dev_resources_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, id: 
         }
     });
     ui.add_space(4.0);
+}
+
+/// The menu label of measuring along `side`.
+fn side_label(side: figcraft_doc::Side) -> &'static str {
+    use figcraft_doc::Side;
+    match side {
+        Side::Top => tr("Along the top"),
+        Side::Right => tr("Along the right"),
+        Side::Bottom => tr("Along the bottom"),
+        Side::Left | Side::Auto => tr("Along the left"),
+    }
+}
+
+/// Measurements kept on the canvas: those from or to the selected layer (with nothing selected,
+/// every one on the page), each with its distances; a click selects the layer it starts from and
+/// − removes it. With a layer selected, a menu places a new one: between two selected layers, to
+/// the layer around it or along one of its sides.
+pub fn measurements_section(app: &mut FigApp, ui: &mut Ui, doc: &Document, sel: &[NodeId]) {
+    use figcraft_doc::Side;
+    refresh_measurements(app);
+    let t = Tokens::get(ui.ctx());
+    let first = sel.first().copied().filter(|id| doc.node(*id).is_some_and(|n| !n.is_page()));
+    let rows: Vec<&Placed> = app.ui.dev.measured.iter().filter(|m| first.is_none_or(|id| m.touches(id))).collect();
+    if first.is_none() && rows.is_empty() {
+        return;
+    }
+    let mut action: Option<(&str, serde_json::Value)> = None;
+    widgets::separator(ui);
+    widgets::section_header(ui, tr("Measurements"), &[], rows.is_empty());
+    for m in &rows {
+        if let Some(a) = measurement_row(ui, &t, doc, m) {
+            action = Some(a);
+        }
+    }
+    if let Some(id) = first {
+        let around = doc.node(id).and_then(|n| n.parent).and_then(|p| doc.node(p)).is_some_and(|p| !p.is_page());
+        let w = ui.available_width() - PAD * 2.0;
+        row(ui, 32.0, |ui| {
+            let resp = widgets::dropdown(ui, tr("Add measurement"), w, Some(Icon::Measure))
+                .on_hover_text(tr("Keep a measurement on the canvas for developers"));
+            menu_popup(&resp).show(|ui| {
+                if let [a, b, ..] = sel
+                    && menu_item(ui, tr("Between the selected layers"), "")
+                {
+                    action = Some(("devMode.addMeasurement", json!({"from": a, "to": b})));
+                }
+                if around && menu_item(ui, tr("To the layer around it"), "") {
+                    action = Some(("devMode.addMeasurement", json!({"from": id})));
+                }
+                for side in [Side::Top, Side::Right, Side::Bottom, Side::Left] {
+                    if menu_item(ui, side_label(side), "") {
+                        action = Some(("devMode.addMeasurement", json!({"from": id, "side": side})));
+                    }
+                }
+            });
+        });
+    }
+    if let Some((cmd, params)) = action {
+        app.run(cmd, params);
+    }
+    ui.add_space(4.0);
+}
+
+/// One measurement in the Inspect tab, on two lines: what it measures, and its distances below. A
+/// click selects the layer it starts from, − removes it: the command to run.
+fn measurement_row(ui: &mut Ui, t: &Tokens, doc: &Document, m: &Placed) -> Option<(&'static str, serde_json::Value)> {
+    let name = |id: NodeId| doc.node(id).map_or(String::new(), |n| n.name.clone());
+    let mut action = None;
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r.shrink2(vec2(PAD / 2.0, 1.0)), CornerRadius::same(4), t.hover);
+    }
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + PAD + 7.0, r.center().y), vec2(14.0, 14.0)), Icon::Measure, t.icon_secondary);
+    let what = match (m.measurement.to, m.measurement.side) {
+        (Some(to), _) => format!("{} → {}", name(m.from), name(to)),
+        (None, side) => format!("{} · {}", name(m.from), side.map_or("", side_label)),
+    };
+    let value = m.labels().join(" · ");
+    let del = Rect::from_center_size(pos2(r.max.x - PAD - 4.0, r.center().y), vec2(22.0, 22.0));
+    let x = r.min.x + PAD + 22.0;
+    let text_w = del.min.x - 6.0 - x;
+    ui.painter().text(pos2(x, r.center().y - 7.0), Align2::LEFT_CENTER, widgets::elide(ui, &what, text_w), regular(11.0), t.text);
+    ui.painter().text(pos2(x, r.center().y + 7.0), Align2::LEFT_CENTER, widgets::elide(ui, &value, text_w), regular(10.0), t.text_secondary);
+    crate::a11y::button(&resp, &format!("{what}: {value}"));
+    if resp.clicked() {
+        action = Some(("select.set", json!({"ids": [m.from]})));
+    }
+    if widgets::icon_button_at(ui, Id::new(("measure_del", m.from, m.index)), del, Icon::Minus, tr("Remove measurement")) {
+        action = Some(("devMode.removeMeasurement", json!({"from": m.from, "index": m.index})));
+    }
+    action
 }
 
 /// The category of annotation `a` as a dropdown: the one picked (`Value::Null` for none).

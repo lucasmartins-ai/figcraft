@@ -812,7 +812,7 @@ fn scan_dir(dir: &std::path::Path, depth: usize, out: &mut BTreeMap<String, (Str
         if !meta.is_file() {
             continue;
         }
-        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+        let ext = path.extension().and_then(std::ffi::OsStr::to_str).map(str::to_ascii_lowercase).unwrap_or_default();
         if !matches!(ext.as_str(), "ttf" | "otf" | "ttc" | "otc") {
             continue;
         }

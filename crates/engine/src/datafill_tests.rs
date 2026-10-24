@@ -3,7 +3,7 @@
 
 use crate::Session;
 use crate::components::tests::{ex, idv};
-use figcraft_doc::*;
+use figcraft_doc::{NodeId, NodeKind};
 use serde_json::json;
 
 /// A 1080×1350 "Post" with "Title" and "Price" texts and a "Badge" rectangle. Returns the frame.

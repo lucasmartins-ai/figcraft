@@ -395,6 +395,10 @@ fn every_command_survives_junk_params() {
         // Links (dev resources) and indexes as junk.
         json!({"id": 2, "url": "javascript:alert(1)", "index": 1e308, "name": {"x": 1}}),
         json!({"id": 2, "url": "https://\u{0}x", "index": -1, "name": ""}),
+        // Dev Mode measurements: layers, sides, pages and indexes as junk.
+        json!({"from": "x", "to": -1, "side": [1], "index": 1e308, "page": {"x": 1}}),
+        json!({"from": 2, "to": 2, "side": "middle", "index": -1, "page": 2, "id": "nope"}),
+        json!({"from": 2, "to": 1, "side": "auto"}),
         // Widgets: plugins, targets and fuel as junk.
         json!({"id": 1, "plugin": {"x": 1}, "target": [1], "fuel": -1e308, "x": 1e308}),
         // Plugin directories: ids, versions, servers and confirmations as junk.
@@ -425,6 +429,10 @@ fn every_command_survives_junk_params() {
         // Rotation origins and placing with a tool as junk.
         json!({"tool": [1], "x": 1e308, "y": "NaN", "reset": "maybe", "on": {"x": 1}}),
         json!({"tool": "frame", "x": -1e308, "y": 1e308, "reset": true, "on": "yes"}),
+        // Vector paths (`node.set {path}`) as junk. (Not a string `path` at the top: file commands
+        // would write to it.)
+        json!({"ids": [2, 3], "type": "vector", "path": [5], "width": -1e308, "props": {"path": "M0 0 L1e308 0 L-1e308 1e308", "height": "NaN", "x": 1e308}}),
+        json!({"id": 2, "type": "vector", "path": {"d": 1}, "props": {"path": "M NaN 0 Z", "width": 1e-308}}),
     ];
     for spec in all_commands() {
         if matches!(

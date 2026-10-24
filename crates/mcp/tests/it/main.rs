@@ -13,6 +13,8 @@ mod export_hidden_roots;
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod garbage;
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod inspect_response_limit;
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod protocol;
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod screenshot_pixel_limit;

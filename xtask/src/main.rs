@@ -31,7 +31,7 @@ fn cargo() -> Command {
 }
 
 fn root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(std::path::Path::to_path_buf).unwrap_or_default()
 }
 
 fn main() -> ExitCode {
@@ -201,10 +201,11 @@ fn assets() -> bool {
 fn walk(dir: &std::path::Path, f: &mut dyn FnMut(&std::path::Path)) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
     for e in rd.flatten() {
+        let Ok(ft) = e.file_type() else { continue };
         let p = e.path();
-        if p.is_dir() {
+        if ft.is_dir() && !ft.is_symlink() {
             walk(&p, f);
-        } else {
+        } else if !ft.is_dir() {
             f(&p);
         }
     }

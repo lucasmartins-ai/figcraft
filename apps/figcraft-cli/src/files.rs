@@ -1,5 +1,6 @@
 //! The file subcommands: info, export, convert, render and run.
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -19,7 +20,7 @@ fn load_noted(path: &str) -> CliResult<(Document, Vec<String>)> {
 }
 
 fn ext(path: &str) -> String {
-    Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+    Path::new(path).extension().and_then(OsStr::to_str).unwrap_or("").to_ascii_lowercase()
 }
 
 fn image_format(e: &str) -> Option<ExportFormat> {
@@ -207,10 +208,13 @@ pub fn info(path: &str, as_json: bool) -> CliResult<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// The file name a layer exports to: the app's rule ([`figcraft_engine::cmd::file::safe_file_name`],
+/// so `/` becomes `_` too), without leading or trailing spaces and dots, at most 100 characters
+/// and 200 bytes (file systems allow 255, and a number and the extension still fit).
 fn sanitize(name: &str) -> String {
-    let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '.') { c } else { '_' }).collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "layer".into() } else { s.chars().take(100).collect() }
+    let s = figcraft_engine::cmd::file::safe_file_name(name);
+    let s = s.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    if s.is_empty() { "layer".into() } else { s.char_indices().take(100).take_while(|(i, c)| i + c.len_utf8() <= 200).map(|(_, c)| c).collect() }
 }
 
 /// What `export` exports and how.
@@ -268,14 +272,19 @@ pub fn export(file: &str, out: &str, t: &Target) -> CliResult<ExitCode> {
         return Err(CliError::Failed("the page is empty: nothing to export".into()));
     }
     let mut used = std::collections::BTreeSet::new();
+    let mut next_suffix: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for id in ids {
         let base = sanitize(doc.node(id).map(|n| n.name.as_str()).unwrap_or("layer"));
-        let mut name = base.clone();
-        let mut k = 2;
-        while !used.insert(name.to_lowercase()) {
-            name = format!("{base} {k}");
-            k += 1;
-        }
+        let base_lower = base.to_lowercase();
+        let next = next_suffix.entry(base_lower).or_insert(1);
+        let name = loop {
+            let k = *next;
+            *next += 1;
+            let candidate = if k == 1 { base.clone() } else { format!("{base} {k}") };
+            if used.insert(candidate.to_lowercase()) {
+                break candidate;
+            }
+        };
         let path = Path::new(out).join(format!("{name}.{}", fmt.ext())).to_string_lossy().into_owned();
         write(&path, &bytes_of(&[id])?)?;
         println!("{path}");
@@ -411,6 +420,14 @@ mod tests {
         assert_eq!(sanitize("Home / Hero"), "Home _ Hero");
         assert_eq!(sanitize("../.."), "_");
         assert_eq!(sanitize(""), "layer");
+        // The same characters the app's export keeps (#1154): only what file systems refuse goes.
+        assert_eq!(sanitize("Homepage - desktop (live + verbeteringen)"), "Homepage - desktop (live + verbeteringen)");
+        assert_eq!(sanitize("Q&A, 50% #1 [v2] {x} ~é"), "Q&A, 50% #1 [v2] {x} ~é");
+        assert_eq!(sanitize("a\\b:c*d?e\"f<g>h|i\tj"), "a_b_c_d_e_f_g_h_i_j");
+        assert_eq!(sanitize(" .hidden. "), "hidden");
+        assert_eq!(sanitize(" . .name. . "), "name", "spaces and dots at the edges, mixed");
+        assert_eq!(sanitize(&"x".repeat(300)).chars().count(), 100);
+        assert_eq!(sanitize(&"\u{1F600}".repeat(100)), "\u{1F600}".repeat(50), "at most 200 bytes, whole characters");
     }
 
     #[test]

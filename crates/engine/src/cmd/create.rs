@@ -167,6 +167,42 @@ pub fn parse_path_data(d: &str) -> Option<figcraft_geom::BezPath> {
     figcraft_geom::BezPath::from_svg(d).ok()
 }
 
+/// A vector's geometry made from SVG path data (see [`path_network`]).
+pub(crate) struct PathShape {
+    /// The network, with the path's own box moved to the origin and scaled to the size asked for.
+    pub network: VectorNetwork,
+    pub width: f64,
+    pub height: f64,
+    /// Where the path's own box starts in its coordinates (unscaled).
+    pub offset: (f64, f64),
+}
+
+/// The network SVG path data `d` draws, for `node.create` and `node.set`: the path's own box moves
+/// to the origin, and `width`/`height` scale it as [`vector_scale`] says. Data that doesn't parse
+/// or draws nothing is refused.
+pub(crate) fn path_network(cmd: &str, d: &str, width: Option<f64>, height: Option<f64>) -> Result<PathShape> {
+    use figcraft_geom::Shape;
+    let empty = || bad(cmd, "`path` draws nothing: a vector needs a visible line or area");
+    let mut path = parse_path_data(d).ok_or_else(|| bad(cmd, "`path` is not valid SVG path data"))?;
+    let bb = path.bounding_box();
+    if !(bb.x0.is_finite() && bb.y0.is_finite() && bb.width().is_finite() && bb.height().is_finite()) {
+        return Err(bad(cmd, "`path` has coordinates too large to draw"));
+    }
+    if bb.width() <= 1e-9 && bb.height() <= 1e-9 {
+        return Err(empty());
+    }
+    path.apply_affine(figcraft_geom::Affine::translate((-bb.x0, -bb.y0)));
+    let (sx, sy) = vector_scale(width, height, bb.width(), bb.height(), "a path").map_err(|e| bad(cmd, e))?;
+    if sx != 1.0 || sy != 1.0 {
+        path.apply_affine(figcraft_geom::Affine::scale_non_uniform(sx, sy));
+    }
+    let network = VectorNetwork::from_path(&path);
+    if network.segments.is_empty() {
+        return Err(empty());
+    }
+    Ok(PathShape { network, width: bb.width() * sx, height: bb.height() * sy, offset: (bb.x0, bb.y0) })
+}
+
 /// How much a vector's path is scaled to take the size asked for: with both sides, each scales
 /// independently (as resizing a vector does); with one, the other keeps its proportion. A size on
 /// an axis the geometry has none of is an error unless it is 0 (a line's height), and a size of 0
@@ -229,27 +265,12 @@ pub fn create(s: &mut Session, p: &Value) -> Result<Value> {
     let asked = (num(p, "width"), num(p, "height"));
     if let NodeKind::Vector { network } = &mut kind {
         if let Some(d) = string(p, "path") {
-            let mut path = parse_path_data(&d).ok_or_else(|| bad(cmd, "`path` is not valid SVG path data"))?;
-            use figcraft_geom::Shape;
-            let bb = path.bounding_box();
-            if bb.width() <= 1e-9 && bb.height() <= 1e-9 {
-                return Err(bad(cmd, "`path` draws nothing: a vector needs a visible line or area"));
-            }
-            path.apply_affine(figcraft_geom::Affine::translate((-bb.x0, -bb.y0)));
-            let (sx, sy) = vector_scale(asked.0, asked.1, bb.width(), bb.height(), "a path").map_err(|e| bad(cmd, e))?;
-            if sx != 1.0 || sy != 1.0 {
-                path.apply_affine(figcraft_geom::Affine::scale_non_uniform(sx, sy));
-            }
-            *network = VectorNetwork::from_path(&path);
-            if network.segments.is_empty() {
-                return Err(bad(cmd, "`path` draws nothing: a vector needs a visible line or area"));
-            }
+            let shape = path_network(cmd, &d, asked.0, asked.1)?;
+            *network = shape.network;
             if boolean(p, "closed") == Some(false) {
                 network.regions.clear();
             }
-            w = bb.width() * sx;
-            h = bb.height() * sy;
-            offset = (bb.x0, bb.y0);
+            (w, h, offset) = (shape.width, shape.height, shape.offset);
         } else if let Some(Value::Array(pts)) = get(p, "points") {
             let pts: Vec<Point> = pts.iter().filter_map(|v| Some(Point::new(f64_of(v.get(0)?)?, f64_of(v.get(1)?)?))).collect();
             if pts.len() < 2 {

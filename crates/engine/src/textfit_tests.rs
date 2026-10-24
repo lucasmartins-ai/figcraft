@@ -3,7 +3,7 @@
 
 use crate::Session;
 use crate::components::tests::{ex, idv};
-use figcraft_doc::*;
+use figcraft_doc::{NodeId, NodeKind};
 use serde_json::json;
 
 /// A fixed-width (auto-height) headline of `width` px at 64px. Returns its id.

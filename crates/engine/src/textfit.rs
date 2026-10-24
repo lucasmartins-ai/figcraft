@@ -5,11 +5,11 @@
 //! with a no-break space. Every style run scales by the same factor, so mixed sizes keep their
 //! proportions.
 
-use figcraft_doc::*;
+use figcraft_doc::{NodeKind, TextAutoResize, TextData};
 use serde_json::{Value, json};
 
 use crate::cmd::CommandSpec;
-use crate::params::*;
+use crate::params::{boolean, num, req_targets};
 use crate::{Result, Session, bad, spec};
 
 const CMD: &str = "text.fit";
@@ -65,45 +65,8 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
         let size = t.style.font_size.max(1.0);
         let min = num(p, "minSize").filter(|v| v.is_finite() && *v >= 1.0).unwrap_or(size * 0.6).min(size);
         let fits = |m: (usize, f64, bool)| max_lines.is_none_or(|ml| m.0 <= ml) && m.1 <= height_cap + 0.5;
-        // The largest factor in [min/size, 1] that fits: binary search to a tenth of a pixel.
-        let (mut lo, mut hi) = (min / size, 1.0);
-        let k = if fits(measure(t, 1.0, width)) {
-            1.0
-        } else if !fits(measure(t, lo, width)) {
-            lo
-        } else {
-            for _ in 0..24 {
-                let mid = (lo + hi) / 2.0;
-                if fits(measure(t, mid, width)) {
-                    lo = mid
-                } else {
-                    hi = mid
-                }
-                if (hi - lo) * size < 0.1 {
-                    break;
-                }
-            }
-            lo
-        };
-        // Whole-tenth sizes read better in the panel, but never below the floor; text that fits
-        // keeps its exact size.
-        let mut k = if k < 1.0 { ((size * k * 10.0).floor() / 10.0).max(min) / size } else { 1.0 };
-        let mut m = measure(t, k, width);
-        let mut orphan = orphans && m.2;
-        let mut nbsp = false;
-        if orphan {
-            // Up to 8% smaller (not below the floor) may pull a word down to the last line.
-            let mut tries = 0;
-            while orphan && tries < 8 && size * k * 0.99 >= min {
-                k *= 0.99;
-                m = measure(t, k, width);
-                orphan = m.2;
-                tries += 1;
-            }
-            if orphan {
-                nbsp = true;
-            }
-        }
+        let k = largest_fit(t, width, (size, min), &fits);
+        let (k, nbsp) = if orphans { avoid_orphan(t, k, width, (size, min)) } else { (k, false) };
         let n = doc.get_mut(id)?;
         let NodeKind::Text(t) = &mut n.kind else { continue };
         let count = t.char_count();
@@ -114,23 +77,63 @@ fn fit(s: &mut Session, p: &Value) -> Result<Value> {
                 st.font_size = ((st.font_size * k * 10.0).round() / 10.0).max(floor).clamp(1.0, 5000.0)
             });
         }
-        // Same character count, so style runs keep their ranges.
-        // Only inside the last paragraph: a space before a hard break joins nothing on the last line.
-        let para = t.characters.rfind('\n').map_or(0, |i| i + 1);
-        let joined = if nbsp && let Some(i) = t.characters.trim_end().get(para..).and_then(|p| p.rfind(' ')).map(|i| para + i) {
-            t.characters.replace_range(i..i + 1, "\u{a0}");
-            Some(i)
-        } else {
-            None
-        };
-        let mut after = measure(t, 1.0, width);
-        // Keeping the last words together must not break the limit: an orphan is better.
-        if let Some(i) = joined.filter(|_| !fits(after)) {
-            t.characters.replace_range(i..i + '\u{a0}'.len_utf8(), " ");
-            after = measure(t, 1.0, width);
-        }
+        let after = if nbsp { keep_together(t, width, &fits) } else { measure(t, 1.0, width) };
         // Reported from the final text (rounded sizes, the no-break space), which callers rely on.
         out.push(json!({"id": id.0, "fontSize": (t.style.font_size * 10.0).round() / 10.0, "lines": after.0, "fits": fits(after), "orphan": orphans && after.2}));
     }
     Ok(json!({"fitted": out}))
+}
+
+/// The largest factor in [min/size, 1] at which `t` fits: a binary search to a tenth of a pixel,
+/// then rounded down to a whole-tenth size (which reads better in the panel) but never below the
+/// floor. Text that fits keeps its exact size.
+fn largest_fit(t: &TextData, width: f64, (size, min): (f64, f64), fits: &dyn Fn((usize, f64, bool)) -> bool) -> f64 {
+    let (mut lo, mut hi) = (min / size, 1.0);
+    if fits(measure(t, 1.0, width)) {
+        return 1.0;
+    }
+    if fits(measure(t, lo, width)) {
+        for _ in 0..24 {
+            let mid = (lo + hi) / 2.0;
+            if fits(measure(t, mid, width)) {
+                lo = mid
+            } else {
+                hi = mid
+            }
+            if (hi - lo) * size < 0.1 {
+                break;
+            }
+        }
+    }
+    ((size * lo * 10.0).floor() / 10.0).max(min) / size
+}
+
+/// Up to 8% smaller than `k` (not below the floor) may pull a word down to an orphaned last line.
+/// The factor, and whether an orphan is left (to be kept together with a no-break space).
+fn avoid_orphan(t: &TextData, mut k: f64, width: f64, (size, min): (f64, f64)) -> (f64, bool) {
+    let mut orphan = measure(t, k, width).2;
+    let mut tries = 0;
+    while orphan && tries < 8 && size * k * 0.99 >= min {
+        k *= 0.99;
+        orphan = measure(t, k, width).2;
+        tries += 1;
+    }
+    (k, orphan)
+}
+
+/// Keep the last two words together with a no-break space, unless that breaks the limit (an
+/// orphan is better). Same character count, so style runs keep their ranges. The final layout.
+fn keep_together(t: &mut TextData, width: f64, fits: &dyn Fn((usize, f64, bool)) -> bool) -> (usize, f64, bool) {
+    // Only inside the last paragraph: a space before a hard break joins nothing on the last line.
+    let para = t.characters.rfind('\n').map_or(0, |i| i + 1);
+    let Some(i) = t.characters.trim_end().get(para..).and_then(|p| p.rfind(' ')).map(|i| para + i) else {
+        return measure(t, 1.0, width);
+    };
+    t.characters.replace_range(i..i + 1, "\u{a0}");
+    let after = measure(t, 1.0, width);
+    if fits(after) {
+        return after;
+    }
+    t.characters.replace_range(i..i + '\u{a0}'.len_utf8(), " ");
+    measure(t, 1.0, width)
 }

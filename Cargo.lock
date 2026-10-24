@@ -2613,8 +2613,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 [[package]]
 name = "krilla"
 version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27da593198b20eeba65caeb73c2bbeec3e53ab08fa549898312ce81c4fce5e33"
+source = "git+https://github.com/storytold/craft-libs?rev=9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef#9f75d3dc19b4b514c4f3d4847ed1ec1b0e86b4ef"
 dependencies = [
  "base64 0.22.1",
  "bumpalo",
