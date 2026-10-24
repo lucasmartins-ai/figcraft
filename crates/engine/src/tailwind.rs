@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use figcraft_doc::*;
+use figcraft_doc::{Document, NodeId, NodeKind, Variable, VariableId, VariableType};
 
 use crate::codegen::{CodeLang, Ctx, Markup, css_var_name, css_var_of, num};
 use crate::component_codegen::component_type_name;
@@ -105,9 +105,22 @@ fn arb(v: &str) -> String {
     format!("[{}]", v.trim().replace('_', "\\_").replace(' ', "_"))
 }
 
-/// The custom property a `var(--name, fallback)` value reads.
+/// The custom property a `var(--name, fallback)` value reads, when that one call is the whole
+/// value (not `var(--a, 4px) 8px`, four corners of which only the first is a variable).
 fn var_name(v: &str) -> Option<&str> {
     let inner = v.trim().strip_prefix("var(")?;
+    let mut depth = 1usize;
+    let close = inner.char_indices().find_map(|(i, c)| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        (depth == 0).then_some(i)
+    })?;
+    if close + 1 != inner.len() {
+        return None;
+    }
     Some(inner.split([',', ')']).next()?.trim())
 }
 
@@ -454,7 +467,7 @@ pub fn code(doc: &Document, id: NodeId, mobile: Option<NodeId>) -> String {
     // ponytail: layers only on mobile are listed, not merged in; their place in the tree is ambiguous.
     let only_mobile: Vec<String> = small
         .iter()
-        .flat_map(|m| m.keys())
+        .flat_map(BTreeMap::keys)
         .filter(|p| !rules.iter().any(|(d, _, _)| d == *p))
         .map(|p| p.trim_start_matches('/').split('/').map(|seg| seg.rsplit_once('#').map_or(seg, |(n, _)| n)).collect::<Vec<_>>().join(" › "))
         .take(20)

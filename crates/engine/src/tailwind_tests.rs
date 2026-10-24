@@ -5,7 +5,7 @@
 use crate::Session;
 use crate::components::tests::{ex, idv};
 use crate::tailwind::{classes, merge};
-use figcraft_doc::*;
+use figcraft_doc::NodeId;
 use serde_json::json;
 
 fn code(s: &mut Session, id: NodeId, extra: serde_json::Value) -> String {
@@ -362,4 +362,11 @@ fn review_desktop_defaults_reset_mobile_values_and_padding_per_side() {
 fn review_desktop_without_fill_clears_a_mobile_image_or_gradient() {
     let got = merge(Some(&[("background".to_string(), "[background:url(image.png)_center_/_cover]".to_string())]), &[]);
     assert!(got.contains(&"lg:bg-none".to_string()) && got.contains(&"lg:bg-transparent".to_string()), "{got:?}");
+}
+
+#[test]
+fn per_corner_radii_with_a_variable_first_keep_every_corner() {
+    let got: Vec<String> =
+        classes("border-radius: var(--radius-a, 4px) 8px 8px 8px;\nborder-radius: var(--radius-card, 4px);\n").into_iter().map(|(_, c)| c).collect();
+    assert_eq!(got, ["rounded-[var(--radius-a,_4px)_8px_8px_8px]", "rounded-card"]);
 }

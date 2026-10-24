@@ -99,9 +99,10 @@ impl CodeLang {
             CodeLang::Compose => "Compose",
         }
     }
-    /// Languages whose lengths are CSS pixels (they can be shown in rem).
+    /// Languages whose lengths are CSS pixels that can be shown in rem (not Tailwind: its lengths
+    /// are utility classes).
     pub fn is_web(self) -> bool {
-        matches!(self, CodeLang::Css | CodeLang::Html | CodeLang::React | CodeLang::Leptos | CodeLang::Tailwind)
+        matches!(self, CodeLang::Css | CodeLang::Html | CodeLang::React | CodeLang::Leptos)
     }
     pub fn from_id(s: &str) -> Option<CodeLang> {
         if s.eq_ignore_ascii_case("tsx") || s.eq_ignore_ascii_case("jsx") {
